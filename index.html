@@ -178,6 +178,8 @@
   #crosshair.hit { transform: translate(-50%, -50%) rotate(45deg) scale(1.25); }
   #crosshair.hit::before, #crosshair.hit::after { background: #ff3b30; }
   @media (prefers-reduced-motion: reduce) { .dmg { animation-duration: 0.4s; } }
+  #minimap { position: absolute; top: 10px; left: 10px; width: 112px; height: 152px; border: 2px solid #d4af37; border-radius: 8px; background: #2c4a22; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+  @media (max-width: 640px) { #minimap { top: 112px; width: 78px; height: 106px; } }
   /* 中央クロスヘア */
   #crosshair {
     position: absolute; top: 50%; left: 50%;
@@ -425,6 +427,7 @@
 
   <div id="announce-banner">合戦開始！</div>
 
+  <canvas id="minimap" width="112" height="152" aria-label="ミニマップ"></canvas>
   <div id="lock-hint" class="hidden">画面をクリックすると、マウスで視点を動かせます（Escでカーソルを戻す）</div>
   <div id="crosshair"><div id="crosshair-dot"></div></div>
 
@@ -1082,9 +1085,9 @@ renderer.shadowMap.enabled = true;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87b8de);
-scene.fog = new THREE.FogExp2(0x87b8de, 0.0085);
+scene.fog = new THREE.FogExp2(0x87b8de, 0.0055);
 
-const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 300);
+const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 420);
 
 // ライティング
 const hemiLight = new THREE.HemisphereLight(0xfff6e5, 0x49613b, 0.75);
@@ -1093,118 +1096,482 @@ scene.add(hemiLight);
 const dirLight = new THREE.DirectionalLight(0xfff0d0, 0.95);
 dirLight.position.set(35, 55, 25);
 dirLight.castShadow = true;
-dirLight.shadow.mapSize.set(1024, 1024);
+dirLight.shadow.mapSize.set(2048, 2048);
 dirLight.shadow.camera.near = 5;
-dirLight.shadow.camera.far = 140;
-const d = 55;
+dirLight.shadow.camera.far = 160;
+const d = 48;
 dirLight.shadow.camera.left = -d;
 dirLight.shadow.camera.right = d;
 dirLight.shadow.camera.top = d;
 dirLight.shadow.camera.bottom = -d;
 scene.add(dirLight);
+scene.add(dirLight.target);
+// 影を写す範囲を自分のまわりに合わせる
+function followShadow(x, z) {
+  dirLight.position.set(x + 35, 55, z + 25);
+  dirLight.target.position.set(x, 0, z);
+  dirLight.target.updateMatrixWorld();
+}
+followShadow(0, 0);
 
-// ステージ障害物・旗オブジェクト配列
-const obstacles = []; // { x, z, halfW, halfD, height }
+// =========================================================
+// ステージ「長篠・設楽原」
+//  ・外周は幟（のぼり）旗で仕切る（X ±70 / Z ±95）
+//  ・中央に連吾川と3本の橋、両陣地に小川と小さな橋
+//  ・馬防柵、森、村（民家・蔵・田んぼ・井戸）、物見櫓、神社、岩
+//  ・両軍の奥に城（石垣＋天守＋土塀）、その手前に本陣の旗
+// =========================================================
+const MAP = { hx: 70, hz: 95 };
+const FLAG_Z = 72;     // 本陣の旗（東軍 -72 / 西軍 +72）
+const SPAWN_Z = 63;    // 出陣・復活する位置
+const obstacles = [];  // { kind:'box', x, z, hw, hd, h, shot } / { kind:'circle', x, z, r, h, shot }
+const waters = [];     // 川：{ x1, x2, z1, z2 }
+const bridges = [];    // 橋：{ x1, x2, z1, z2 }
 let eastBaseFlagMesh = null;
 let westBaseFlagMesh = null;
 
-function buildNagashinoStage() {
-  // 地面（草原）
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(140, 140),
-    new THREE.MeshStandardMaterial({ color: 0x4c7c3c, roughness: 0.9 })
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.receiveShadow = true;
-  scene.add(ground);
-
-  // 中央の「連吾川」（Z = -5 〜 +5）
-  const river = new THREE.Mesh(
-    new THREE.PlaneGeometry(140, 9),
-    new THREE.MeshStandardMaterial({ color: 0x2980b9, roughness: 0.25, metalness: 0.2 })
-  );
-  river.rotation.x = -Math.PI / 2;
-  river.position.y = 0.04;
-  scene.add(river);
-
-  // 連吾川に架かる3つの木橋（X = -22, 0, +22）
-  const bridgeMat = new THREE.MeshStandardMaterial({ color: 0x7c5230, roughness: 0.8 });
-  [-22, 0, 22].forEach(bx => {
-    const bridge = new THREE.Mesh(new THREE.BoxGeometry(7, 0.35, 10.5), bridgeMat);
-    bridge.position.set(bx, 0.15, 0);
-    bridge.receiveShadow = true;
-    scene.add(bridge);
-  });
-
-  // 長篠の「馬防柵（ばぼうさく）」を作る関数
-  const woodLogMat = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.85 });
-  function createPalisade(x, z) {
-    const group = new THREE.Group();
-    group.position.set(x, 0, z);
-    // 横木2本＋縦杭5本
-    for (let i = -2; i <= 2; i++) {
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 2.2, 6), woodLogMat);
-      post.position.set(i * 1.1, 1.05, 0);
-      post.rotation.x = (i % 2 === 0 ? 0.12 : -0.12);
-      post.castShadow = true;
-      group.add(post);
+function buildStage() {
+  const M = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 });
+  const mats = {
+    grass: M(0x5a8a3e), grass2: M(0x4f7d36), dirt: M(0x9c8460), sand: M(0xcdb98a),
+    water: new THREE.MeshStandardMaterial({ color: 0x3a8fc9, roughness: 0.2, metalness: 0.25 }),
+    paddy: new THREE.MeshStandardMaterial({ color: 0x7fb6a8, roughness: 0.3, metalness: 0.1 }),
+    wood: M(0x6b4423), woodLight: M(0x9a6b3d), woodDark: M(0x3d2a1a),
+    plaster: M(0xf1ece0), wall: M(0xd9c7a0), thatch: M(0x8f7a4a), tile: M(0x3a3f47),
+    stone: M(0x8a8a82), stoneDark: M(0x6d6d66), gold: new THREE.MeshStandardMaterial({ color: 0xe5b822, metalness: 0.8, roughness: 0.3 }),
+    vermilion: M(0xc8402e), rock: M(0x7d7a72), white: M(0xf5f5f0), black: M(0x22252a)
+  };
+  const add = (geo, mat, x, y, z, ry, cast) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    if (ry) m.rotation.y = ry;
+    m.castShadow = cast !== false;
+    m.receiveShadow = true;
+    scene.add(m);
+    return m;
+  };
+  const box = (w, h, d, mat, x, y, z, ry, cast) => add(new THREE.BoxGeometry(w, h, d), mat, x, y, z, ry, cast);
+  const flat = (w, d, mat, x, z, y) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(x, y || 0.02, z);
+    m.receiveShadow = true;
+    scene.add(m);
+    return m;
+  };
+  const solidBox = (x, z, hw, hd, h, shot) => obstacles.push({ kind: 'box', x, z, hw, hd, h, shot: shot !== false });
+  const solidCircle = (x, z, r, h, shot) => obstacles.push({ kind: 'circle', x, z, r, h, shot: shot !== false });
+  // 三角屋根（切妻）：幅w・奥行きd・高さh。棟は奥行き方向
+  const gableGeo = (w, h, d) => {
+    const s = new THREE.Shape();
+    s.moveTo(-w / 2, 0); s.lineTo(w / 2, 0); s.lineTo(0, h); s.lineTo(-w / 2, 0);
+    const g = new THREE.ExtrudeGeometry(s, { depth: d, bevelEnabled: false });
+    g.translate(0, 0, -d / 2);
+    return g;
+  };
+  // 四角すい台（石垣・寄棟屋根）
+  const frustum = (wTop, wBot, dTop, dBot, h) => {
+    const g = new THREE.CylinderGeometry(Math.SQRT1_2, Math.SQRT1_2, h, 4, 1);
+    g.rotateY(Math.PI / 4);
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const top = p.getY(i) > 0;
+      p.setX(i, Math.sign(p.getX(i)) * (top ? wTop : wBot) / 2);
+      p.setZ(i, Math.sign(p.getZ(i)) * (top ? dTop : dBot) / 2);
     }
-    const bar1 = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 5.2, 6), woodLogMat);
-    bar1.rotation.z = Math.PI / 2;
-    bar1.position.set(0, 0.75, 0);
-    const bar2 = bar1.clone();
-    bar2.position.y = 1.45;
-    group.add(bar1, bar2);
-    scene.add(group);
-    obstacles.push({ x, z, halfW: 2.7, halfD: 0.55, height: 2.2 });
+    g.computeVertexNormals();
+    return g;
+  };
+
+  // --- 地面 ---
+  flat(400, 400, mats.grass2, 0, 0, 0);
+  flat(MAP.hx * 2, MAP.hz * 2, mats.grass, 0, 0, 0.01);
+  // まだらな草地
+  for (let i = 0; i < 26; i++) {
+    const m = flat(6 + Math.random() * 10, 6 + Math.random() * 10, mats.grass2, (Math.random() - 0.5) * 130, (Math.random() - 0.5) * 180, 0.015);
+    m.rotation.z = Math.random() * Math.PI;
+  }
+  // 道（本陣から橋へ）
+  const road = (x1, z1, x2, z2, w) => {
+    const len = Math.hypot(x2 - x1, z2 - z1);
+    const m = flat(w || 3.2, len, mats.dirt, (x1 + x2) / 2, (z1 + z2) / 2, 0.025);
+    m.rotation.z = -Math.atan2(x2 - x1, z2 - z1);
+  };
+  for (const s of [-1, 1]) {
+    road(0, s * 66, -12, s * 40); road(-12, s * 40, -12, s * 6);
+    road(0, s * 66, 25, s * 40); road(25, s * 40, 25, s * 6);
+    road(-12, s * 40, -45, s * 22); road(-45, s * 22, -45, s * 6);
+    road(25, s * 40, 50, s * 45, 2.4);
   }
 
-  // 東軍側（Z < 0）と西軍側（Z > 0）に馬防柵を配置
-  [-28, -13, 13, 28].forEach(px => {
-    createPalisade(px, -11);
-    createPalisade(px, 11);
-  });
-  [-18, 0, 18].forEach(px => {
-    createPalisade(px, -23);
-    createPalisade(px, 23);
-  });
+  // --- 川 ---
+  const river = (z, halfW, bridgeXs, bridgeHalf, big) => {
+    flat(MAP.hx * 2, halfW * 2 + 2.4, mats.sand, 0, z, 0.03);
+    flat(MAP.hx * 2, halfW * 2, mats.water, 0, z, 0.05);
+    waters.push({ x1: -MAP.hx - 2, x2: MAP.hx + 2, z1: z - halfW, z2: z + halfW });
+    bridgeXs.forEach(bx => {
+      const len = halfW * 2 + 3;
+      bridges.push({ x1: bx - bridgeHalf, x2: bx + bridgeHalf, z1: z - len / 2, z2: z + len / 2 });
+      box(bridgeHalf * 2, 0.3, len, big ? mats.woodLight : mats.wood, bx, 0.18, z, 0, false);
+      for (const sx of [-1, 1]) {
+        box(0.16, 0.7, len, mats.woodDark, bx + sx * (bridgeHalf - 0.1), 0.65, z);
+        for (const sz of [-1, 0, 1]) box(0.24, 1.1, 0.24, mats.woodDark, bx + sx * (bridgeHalf - 0.1), 0.55, z + sz * len * 0.45);
+      }
+      if (big) for (const sz of [-1, 1]) box(bridgeHalf * 2 + 0.6, 0.5, 0.5, mats.wood, bx, -0.05, z + sz * halfW * 0.6, 0, false);
+    });
+  };
+  river(0, 4, [-45, -12, 25], 3.5, true);     // 連吾川
+  river(-38, 1.5, [-55, -12, 25, 50], 2.2);    // 東軍側の小川
+  river(38, 1.5, [-50, -12, 25, 55], 2.2);     // 西軍側の小川
+  // 川辺の岩
+  const rockGeo = new THREE.DodecahedronGeometry(1, 0);
+  const rock = (x, z, s) => {
+    const m = add(rockGeo, mats.rock, x, s * 0.45, z, Math.random() * 3);
+    m.scale.set(s, s * 0.75, s * 1.1);
+    solidCircle(x, z, s * 0.95, s * 1.2, true);
+  };
+  [[-30, 6.5, 1.3], [8, -6.4, 1.1], [40, 6.8, 1.5], [-60, -6.6, 1.2], [60, 6.4, 1.0], [-25, -41, 0.9], [35, 41, 1.0],
+   [-5, 28, 1.4], [10, -27, 1.2], [-38, 55, 1.6], [42, -56, 1.5], [62, -20, 1.3], [-62, 22, 1.3]].forEach(r => rock(r[0], r[1], r[2]));
 
-  // 本陣の大旗（東軍 Z = -42, 西軍 Z = +42）
+  // --- 馬防柵（両軍の前） ---
+  const fenceMat = mats.wood;
+  const palisade = (cx, z, len) => {
+    const n = Math.round(len / 1.2);
+    for (let i = 0; i <= n; i++) {
+      const p = add(new THREE.CylinderGeometry(0.13, 0.16, 2.2, 6), fenceMat, cx - len / 2 + i * (len / n), 1.05, z);
+      p.rotation.x = i % 2 ? -0.14 : 0.14;
+    }
+    for (const y of [0.75, 1.5]) {
+      const b = add(new THREE.CylinderGeometry(0.1, 0.1, len, 6), fenceMat, cx, y, z);
+      b.rotation.z = Math.PI / 2;
+    }
+    solidBox(cx, z, len / 2, 0.5, 2.2, false);   // 低いので弾は越える
+  };
+  for (const z of [-15, 15]) [-54, -36, -18, 0, 18, 36, 54].forEach(x => palisade(x, z, 12));
+
+  // --- 木（インスタンス描画で軽く） ---
+  const pines = [], rounds = [];
+  const treeOK = (x, z, r) => Math.abs(x) < MAP.hx - 3 && Math.abs(z) < MAP.hz - 3
+    && !waters.some(w => z > w.z1 - r - 1 && z < w.z2 + r + 1)
+    && !obstacles.some(o => o.kind === 'box' ? Math.abs(x - o.x) < o.hw + r + 1.5 && Math.abs(z - o.z) < o.hd + r + 1.5 : Math.hypot(x - o.x, z - o.z) < o.r + r + 1.2)
+    && ![...pines, ...rounds].some(t => Math.hypot(t.x - x, t.z - z) < 3.2);
+  const reserve = [];   // 建物用に空けておく場所
+  const freeOf = (x, z) => !reserve.some(r => Math.abs(x - r.x) < r.hw && Math.abs(z - r.z) < r.hd);
+  // 村・城・本陣・道の予定地
+  for (const s of [-1, 1]) {
+    reserve.push({ x: s * 44, z: -s * 46, hw: 20, hd: 14 });   // 村
+    reserve.push({ x: 0, z: s * 78, hw: 50, hd: 20 });         // 城と本陣
+    reserve.push({ x: 0, z: s * 52, hw: 9, hd: 16 });          // 本陣前の道
+    reserve.push({ x: -12, z: s * 24, hw: 4, hd: 18 });
+    reserve.push({ x: 25, z: s * 24, hw: 4, hd: 18 });
+    reserve.push({ x: -45, z: s * 14, hw: 4, hd: 10 });
+    reserve.push({ x: 0, z: s * 15, hw: 70, hd: 3 });         // 柵の列
+  }
+  const plant = (list, x, z, sc) => { if (treeOK(x, z, 0.8) && freeOf(x, z)) { list.push({ x, z, s: sc }); solidCircle(x, z, 0.55 * sc, 6, true); } };
+  // 森（東軍側の左、西軍側の右）
+  for (let i = 0; i < 320; i++) {
+    const s = i % 2 ? 1 : -1;
+    plant(i % 3 ? pines : rounds, -s * (44 + Math.random() * 22), s * (20 + Math.random() * 40), 0.9 + Math.random() * 0.6);
+  }
+  // 中央付近の小さな林
+  for (let i = 0; i < 60; i++) plant(i % 2 ? pines : rounds, 4 + Math.random() * 16 - 8 + (i % 2 ? -30 : 38), (Math.random() - 0.5) * 20 + (i % 3 - 1) * 24, 0.8 + Math.random() * 0.5);
+  // あちこちの木
+  for (let i = 0; i < 160; i++) plant(i % 2 ? pines : rounds, (Math.random() - 0.5) * 132, (Math.random() - 0.5) * 176, 0.8 + Math.random() * 0.7);
+  const inst = (geo, mat, list, place) => {
+    const im = new THREE.InstancedMesh(geo, mat, list.length);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3();
+    list.forEach((t, i) => { place(t, p, q, sc); m4.compose(p, q, sc); im.setMatrixAt(i, m4); });
+    im.castShadow = true; im.receiveShadow = true;
+    scene.add(im);
+  };
+  const trunkGeo = new THREE.CylinderGeometry(0.22, 0.32, 1, 6);
+  const coneGeo = new THREE.ConeGeometry(1, 1, 7);
+  const ballGeo = new THREE.IcosahedronGeometry(1, 1);
+  const pineMat = M(0x2f5d34), roundMat = M(0x4a7f35), trunkMat = mats.woodDark;
+  inst(trunkGeo, trunkMat, [...pines, ...rounds], (t, p, q, s) => { p.set(t.x, 1.2 * t.s, t.z); s.set(t.s, 2.4 * t.s, t.s); });
+  [[2.0, 2.2, 2.6], [1.6, 2.0, 3.8], [1.1, 1.8, 4.9]].forEach(([r, h, y]) =>
+    inst(coneGeo, pineMat, pines, (t, p, q, s) => { p.set(t.x, y * t.s, t.z); s.set(r * t.s, h * t.s, r * t.s); }));
+  inst(ballGeo, roundMat, rounds, (t, p, q, s) => { p.set(t.x, 3.6 * t.s, t.z); q.setFromEuler(new THREE.Euler(0, t.x, 0)); s.set(2.1 * t.s, 1.8 * t.s, 2.1 * t.s); });
+
+  // --- 村（民家・蔵・井戸・田んぼ） ---
+  const minka = (x, z, rot, w, d) => {
+    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rot; scene.add(g);
+    const part = (geo, mat, px, py, pz) => { const m = new THREE.Mesh(geo, mat); m.position.set(px, py, pz); m.castShadow = true; m.receiveShadow = true; g.add(m); return m; };
+    part(new THREE.BoxGeometry(w, 2.6, d), mats.wall, 0, 1.3, 0);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) part(new THREE.BoxGeometry(0.25, 2.7, 0.25), mats.woodDark, sx * w / 2, 1.35, sz * d / 2);
+    part(new THREE.BoxGeometry(1.1, 1.9, 0.08), mats.woodDark, 0, 0.95, d / 2 + 0.02);
+    part(gableGeo(w + 1.4, 2.6, d + 1.2), mats.thatch, 0, 2.6, 0);
+    part(new THREE.BoxGeometry(0.45, 0.45, d + 1.6), mats.woodDark, 0, 5.1, 0);
+    const hw = rot % Math.PI ? d / 2 : w / 2, hd = rot % Math.PI ? w / 2 : d / 2;
+    solidBox(x, z, hw + 0.3, hd + 0.3, 5);
+  };
+  const kura = (x, z, rot) => {
+    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rot; scene.add(g);
+    const part = (geo, mat, px, py, pz) => { const m = new THREE.Mesh(geo, mat); m.position.set(px, py, pz); m.castShadow = true; g.add(m); return m; };
+    part(new THREE.BoxGeometry(4, 3.4, 3), mats.plaster, 0, 1.9, 0);
+    part(new THREE.BoxGeometry(4.05, 0.9, 3.05), mats.black, 0, 0.45, 0);
+    part(new THREE.BoxGeometry(0.9, 1.1, 0.1), mats.black, 0, 2.3, 1.53);
+    part(gableGeo(4.9, 1.4, 4.0), mats.tile, 0, 3.6, 0);
+    solidBox(x, z, rot % Math.PI ? 1.8 : 2.3, rot % Math.PI ? 2.3 : 1.8, 5);
+  };
+  const well = (x, z) => {
+    add(new THREE.CylinderGeometry(0.9, 0.95, 0.9, 12, 1, true), mats.stone, x, 0.45, z);
+    for (const sx of [-1, 1]) box(0.15, 1.9, 0.15, mats.woodDark, x + sx * 0.9, 0.95, z);
+    add(gableGeo(2.4, 0.6, 1.4), mats.tile, x, 1.9, z);
+    solidCircle(x, z, 1.1, 1, false);
+  };
+  const paddies = (cx, cz, nx, nz) => {
+    for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) flat(5.2, 4.2, mats.paddy, cx + (i - (nx - 1) / 2) * 5.8, cz + (j - (nz - 1) / 2) * 4.8, 0.035);
+    flat(nx * 5.8 + 0.4, nz * 4.8 + 0.4, mats.dirt, cx, cz, 0.028);
+  };
+  for (const s of [-1, 1]) {     // s=-1: 東軍側(Z<0)の右(X>0)／ s=+1: 西軍側の左
+    const vx = -s * 44, vz = s * 46;
+    minka(vx - 8, vz - s * 6, 0, 7, 5);
+    minka(vx + 3, vz - s * 7, 0, 6, 5);
+    minka(vx + 12, vz + s * 2, Math.PI / 2, 6, 4.5);
+    minka(vx - 10, vz + s * 6, Math.PI / 2, 5.5, 4.5);
+    kura(vx - 1, vz + s * 6, 0);
+    well(vx + 2, vz);
+    paddies(vx + 2, vz + s * 15, 4, 2);
+  }
+
+  // --- 神社（中央の東岸） ---
+  const tx = 50, tz = -24;
+  for (const sx of [-1, 1]) add(new THREE.CylinderGeometry(0.28, 0.32, 4.4, 10), mats.vermilion, tx + sx * 2.2, 2.2, tz);
+  box(6.4, 0.45, 0.6, mats.black, tx, 4.55, tz);
+  box(5.4, 0.3, 0.4, mats.vermilion, tx, 3.7, tz);
+  solidCircle(tx - 2.2, tz, 0.5, 4.4, true); solidCircle(tx + 2.2, tz, 0.5, 4.4, true);
+  box(4, 2.4, 3.2, mats.wood, tx, 1.5, tz - 6);
+  box(4.2, 0.6, 3.4, mats.woodDark, tx, 0.3, tz - 6);
+  add(gableGeo(5.2, 1.6, 4.4), mats.tile, tx, 2.7, tz - 6);
+  solidBox(tx, tz - 6, 2.4, 1.9, 4.5);
+  // 西側の小さな祠と鳥居
+  const tx2 = -50, tz2 = 26;
+  for (const sx of [-1, 1]) add(new THREE.CylinderGeometry(0.22, 0.26, 3.4, 10), mats.vermilion, tx2 + sx * 1.7, 1.7, tz2);
+  box(5, 0.35, 0.5, mats.black, tx2, 3.55, tz2);
+  solidCircle(tx2 - 1.7, tz2, 0.45, 3.4, true); solidCircle(tx2 + 1.7, tz2, 0.45, 3.4, true);
+
+  // --- 物見櫓 ---
+  const yagura = (x, z) => {
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const p = add(new THREE.CylinderGeometry(0.18, 0.24, 6, 6), mats.wood, x + sx * 1.4, 3, z + sz * 1.4);
+      p.rotation.z = -sx * 0.05; p.rotation.x = sz * 0.05;
+    }
+    box(3.8, 0.3, 3.8, mats.woodLight, x, 6, z);
+    for (const sx of [-1, 1]) { box(0.12, 0.9, 3.8, mats.wood, x + sx * 1.85, 6.6, z); box(3.8, 0.9, 0.12, mats.wood, x, 6.6, z + sx * 1.85); }
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(0.12, 2, 0.12, mats.woodDark, x + sx * 1.8, 7.1, z + sz * 1.8);
+    add(frustum(0.6, 4.6, 0.6, 4.6, 1.4), mats.thatch, x, 8.7, z);
+    box(2.6, 0.2, 0.2, mats.wood, x, 2.2, z + 1.4); box(2.6, 0.2, 0.2, mats.wood, x, 2.2, z - 1.4);
+    solidBox(x, z, 1.8, 1.8, 6, false);
+  };
+  for (const s of [-1, 1]) { yagura(-28, s * 58); yagura(30, s * 58); yagura(-62, s * 6.5 + s * 4); }
+
+  // --- 城（両軍の奥） ---
+  const castle = (z, teamColor) => {
+    const s = Math.sign(z);
+    // 石垣
+    add(frustum(20, 24, 10, 13, 5), mats.stone, 0, 2.5, z);
+    // 天守（3層）
+    const tier = (w, d, y, h) => {
+      box(w, h, d, mats.plaster, 0, y + h / 2, z);
+      for (let i = -1; i <= 1; i += 2) box(w * 0.18, h * 0.32, 0.06, mats.black, i * w * 0.25, y + h * 0.55, z - s * (d / 2 + 0.03));
+      add(frustum(w * 0.55, w + 2.2, d * 0.55, d + 2.2, 1.3), mats.tile, 0, y + h + 0.65, z);
+    };
+    tier(15, 8, 5, 3.4);
+    tier(11, 6.4, 9.7, 3);
+    tier(7.5, 5, 14, 2.6);
+    add(frustum(0.6, 5.5, 0.6, 3.6, 2.4), mats.tile, 0, 19.8, z);
+    for (const sx of [-1, 1]) { const sh = box(0.5, 1.1, 0.7, mats.gold, sx * 0.6, 21.3, z); sh.rotation.z = sx * 0.3; }
+    // 正面の唐破風に軍の色の幕
+    box(4, 1.2, 0.12, new THREE.MeshStandardMaterial({ color: teamColor, roughness: 0.6 }), 0, 6.9, z - s * 4.08);
+    solidBox(0, z, 12, 6.5, 22);
+    // 土塀（石垣の左右から外周へ）
+    for (const sx of [-1, 1]) {
+      const cx = sx * 34, len = 36, wz = z - s * 2;
+      box(len, 1.2, 2, mats.stoneDark, cx, 0.6, wz);
+      box(len, 2, 1.1, mats.plaster, cx, 2.2, wz);
+      const cap = add(gableGeo(1.8, 0.6, len), mats.tile, cx, 3.2, wz); cap.rotation.y = Math.PI / 2;
+      // 隅櫓
+      box(5, 3.5, 5, mats.plaster, sx * 53, 3.55, wz);
+      box(5.2, 1.6, 5.2, mats.stone, sx * 53, 0.8, wz);
+      add(frustum(1, 7, 1, 7, 1.8), mats.tile, sx * 53, 6.2, wz);
+      solidBox(cx, wz, len / 2, 1.1, 3.4);
+      solidBox(sx * 53, wz, 2.7, 2.7, 7);
+    }
+  };
+  castle(-86, 0x2980b9);
+  castle(86, 0xc0392b);
+
+  // --- 本陣（陣幕と大旗） ---
   function createMainCamp(zPos, isEast) {
     const color = isEast ? 0x2980b9 : 0xc0392b;
-    const campGroup = new THREE.Group();
-    campGroup.position.set(0, 0, zPos);
-
-    // 占領サークル
-    const circle = new THREE.Mesh(
-      new THREE.RingGeometry(4.6, 5.0, 36),
-      new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })
-    );
-    circle.rotation.x = -Math.PI / 2;
-    circle.position.y = 0.05;
-    campGroup.add(circle);
-
-    // 旗竿
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 8.5, 10), woodLogMat);
-    pole.position.y = 4.25;
-    campGroup.add(pole);
-
-    // 旗布
-    const banner = new THREE.Mesh(
-      new THREE.BoxGeometry(2.6, 3.4, 0.08),
-      new THREE.MeshStandardMaterial({ color, roughness: 0.5 })
-    );
-    banner.position.set(1.35, 6.2, 0);
-    campGroup.add(banner);
-
-    scene.add(campGroup);
+    const s = Math.sign(zPos);
+    const g = new THREE.Group();
+    g.position.set(0, 0, zPos);
+    scene.add(g);
+    const circle = new THREE.Mesh(new THREE.RingGeometry(4.6, 5.0, 36), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }));
+    circle.rotation.x = -Math.PI / 2; circle.position.y = 0.06; g.add(circle);
+    const inner = new THREE.Mesh(new THREE.CircleGeometry(4.6, 36), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.12 }));
+    inner.rotation.x = -Math.PI / 2; inner.position.y = 0.05; g.add(inner);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 8.5, 10), mats.wood);
+    pole.position.y = 4.25; pole.castShadow = true; g.add(pole);
+    const banner = new THREE.Mesh(new THREE.BoxGeometry(2.6, 3.4, 0.08), new THREE.MeshStandardMaterial({ color, roughness: 0.5 }));
+    banner.position.set(1.35, 6.2, 0); banner.castShadow = true; g.add(banner);
+    // 陣幕（左右と後ろ、前は開いている）
+    const makuMat = new THREE.MeshStandardMaterial({ color: 0xf3efe4, roughness: 0.9, side: THREE.DoubleSide });
+    const monMat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide });
+    const maku = (x, z, len, rot) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(len, 1.8), makuMat);
+      m.position.set(x, 1.5, z); m.rotation.y = rot; m.castShadow = true; g.add(m);
+      for (let i = -1; i <= 1; i++) {
+        const mon = new THREE.Mesh(new THREE.CircleGeometry(0.42, 16), monMat);
+        mon.position.set(x + Math.cos(rot) * i * len / 3.2 + Math.sin(rot) * 0.02, 1.55, z - Math.sin(rot) * i * len / 3.2 + Math.cos(rot) * 0.02);
+        mon.rotation.y = rot; g.add(mon);
+      }
+      const n = Math.max(2, Math.round(len / 3));
+      for (let i = 0; i <= n; i++) {
+        const t = -len / 2 + i * len / n;
+        const p = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.6, 5), mats.woodDark);
+        p.position.set(x + Math.cos(rot) * t, 1.3, z - Math.sin(rot) * t); g.add(p);
+      }
+    };
+    maku(-8.5, 0, 12, Math.PI / 2); maku(8.5, 0, 12, Math.PI / 2); maku(0, s * 6, 17, 0);
+    obstacles.push({ kind: 'box', x: -8.5, z: zPos, hw: 0.3, hd: 6, h: 2.4, shot: false });
+    obstacles.push({ kind: 'box', x: 8.5, z: zPos, hw: 0.3, hd: 6, h: 2.4, shot: false });
+    obstacles.push({ kind: 'box', x: 0, z: zPos + s * 6, hw: 8.5, hd: 0.3, h: 2.4, shot: false });
     return banner;
   }
+  eastBaseFlagMesh = createMainCamp(-FLAG_Z, true);
+  westBaseFlagMesh = createMainCamp(FLAG_Z, false);
 
-  eastBaseFlagMesh = createMainCamp(-42, true);
-  westBaseFlagMesh = createMainCamp(42, false);
+  // --- 外周の幟（のぼり）旗と縄 ---
+  const flagPts = [];
+  const step = 5;
+  for (let x = -MAP.hx; x <= MAP.hx; x += step) { flagPts.push([x, -MAP.hz]); flagPts.push([x, MAP.hz]); }
+  for (let z = -MAP.hz + step; z < MAP.hz; z += step) { flagPts.push([-MAP.hx, z]); flagPts.push([MAP.hx, z]); }
+  const poleIM = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.06, 0.07, 4.6, 5), mats.woodDark, flagPts.length);
+  const banIM = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.9, 2.6), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, side: THREE.DoubleSide }), flagPts.length);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+  const cE = new THREE.Color(0x2f6fb5), cW = new THREE.Color(0xc0392b), cWhite = new THREE.Color(0xf2efe6), cY = new THREE.Color(0xe8b923);
+  flagPts.forEach(([x, z], i) => {
+    m4.makeTranslation(x, 2.3, z); poleIM.setMatrixAt(i, m4);
+    const onSide = Math.abs(x) >= MAP.hx;
+    e.set(0, onSide ? Math.PI / 2 : 0, 0); q.setFromEuler(e);
+    const off = onSide ? new THREE.Vector3(0, 0, 0.48) : new THREE.Vector3(0.48, 0, 0);
+    m4.compose(new THREE.Vector3(x + off.x, 3.1, z + off.z), q, new THREE.Vector3(1, 1, 1));
+    banIM.setMatrixAt(i, m4);
+    const k = Math.round((x + z) / step);
+    banIM.setColorAt(i, Math.abs(z) < 6 ? cY : (k % 2 ? cWhite : (z < 0 ? cE : cW)));
+  });
+  poleIM.castShadow = true; banIM.castShadow = true;
+  scene.add(poleIM, banIM);
+  // 縄
+  const ropeMat = M(0xb89a62);
+  for (const sz of [-1, 1]) box(MAP.hx * 2, 0.07, 0.07, ropeMat, 0, 1.3, sz * MAP.hz, 0, false);
+  for (const sx of [-1, 1]) box(0.07, 0.07, MAP.hz * 2, ropeMat, sx * MAP.hx, 1.3, 0, 0, false);
+
+  // --- 遠くの山 ---
+  for (let i = 0; i < 16; i++) {
+    const a = i / 16 * Math.PI * 2, rr = 150 + (i % 3) * 18, h = 25 + (i * 37 % 20);
+    add(new THREE.ConeGeometry(30 + (i * 13 % 14), h, 7), M(i % 2 ? 0x6f9a6a : 0x5f8a62), Math.sin(a) * rr, h / 2 - 1, Math.cos(a) * rr * 1.15, 0, false);
+  }
 }
-buildNagashinoStage();
+buildStage();
+
+// --- 当たり判定用の格子（弾をさえぎる物／歩ける場所） ---
+const SOLID_CELL = 1;
+const solidW = Math.ceil(MAP.hx * 2 / SOLID_CELL) + 2, solidH = Math.ceil(MAP.hz * 2 / SOLID_CELL) + 2;
+const solidGrid = new Uint8Array(solidW * solidH);
+function obstacleCovers(o, x, z, pad) {
+  if (o.kind === 'box') return Math.abs(x - o.x) < o.hw + pad && Math.abs(z - o.z) < o.hd + pad;
+  return Math.hypot(x - o.x, z - o.z) < o.r + pad;
+}
+for (let i = 0; i < solidW; i++) for (let j = 0; j < solidH; j++) {
+  const x = -MAP.hx + (i + 0.5) * SOLID_CELL, z = -MAP.hz + (j + 0.5) * SOLID_CELL;
+  if (obstacles.some(o => o.shot && o.h > 2.5 && obstacleCovers(o, x, z, -0.1))) solidGrid[i * solidH + j] = 1;
+}
+function solidAt(x, z) {
+  const i = Math.floor((x + MAP.hx) / SOLID_CELL), j = Math.floor((z + MAP.hz) / SOLID_CELL);
+  if (i < 0 || j < 0 || i >= solidW || j >= solidH) return false;
+  return solidGrid[i * solidH + j] === 1;
+}
+// 2点のあいだに弾をさえぎる物があるか
+function shotClear(x1, z1, x2, z2) {
+  const len = Math.hypot(x2 - x1, z2 - z1), n = Math.ceil(len / 0.5);
+  for (let k = 1; k < n; k++) { const t = k / n; if (solidAt(x1 + (x2 - x1) * t, z1 + (z2 - z1) * t)) return false; }
+  return true;
+}
+function inWater(x, z) {
+  return waters.some(w => x > w.x1 && x < w.x2 && z > w.z1 && z < w.z2) && !bridges.some(b => x > b.x1 && x < b.x2 && z > b.z1 && z < b.z2);
+}
+
+// --- CPUの道さがし（格子の上でA*） ---
+const NAV = 1.5;
+const navW = Math.floor(MAP.hx * 2 / NAV), navH = Math.floor(MAP.hz * 2 / NAV);
+const navBlocked = new Uint8Array(navW * navH);
+const navX = i => -MAP.hx + (i + 0.5) * NAV, navZ = j => -MAP.hz + (j + 0.5) * NAV;
+for (let i = 0; i < navW; i++) for (let j = 0; j < navH; j++) {
+  const x = navX(i), z = navZ(j);
+  if (Math.abs(x) > MAP.hx - 1.2 || Math.abs(z) > MAP.hz - 1.2 || inWater(x, z) || obstacles.some(o => obstacleCovers(o, x, z, 0.6))) navBlocked[i * navH + j] = 1;
+}
+function navCell(x, z) {
+  return [Math.max(0, Math.min(navW - 1, Math.floor((x + MAP.hx) / NAV))), Math.max(0, Math.min(navH - 1, Math.floor((z + MAP.hz) / NAV)))];
+}
+function nearestFree(i, j) {
+  if (!navBlocked[i * navH + j]) return [i, j];
+  for (let r = 1; r < 8; r++) for (let di = -r; di <= r; di++) for (let dj = -r; dj <= r; dj++) {
+    const a = i + di, b = j + dj;
+    if (a >= 0 && b >= 0 && a < navW && b < navH && !navBlocked[a * navH + b]) return [a, b];
+  }
+  return [i, j];
+}
+// 歩いて通れる直線か（格子をなぞって確かめる）
+function walkClear(x1, z1, x2, z2) {
+  const len = Math.hypot(x2 - x1, z2 - z1), n = Math.ceil(len / 0.6);
+  for (let k = 1; k <= n; k++) {
+    const t = k / n, [i, j] = navCell(x1 + (x2 - x1) * t, z1 + (z2 - z1) * t);
+    if (navBlocked[i * navH + j]) return false;
+  }
+  return true;
+}
+const navG = new Float32Array(navW * navH), navFrom = new Int32Array(navW * navH), navStamp = new Uint32Array(navW * navH), navClosed = new Uint32Array(navW * navH);
+let navRun = 0;
+function findPath(sx, sz, tx, tz) {
+  let [si, sj] = nearestFree(...navCell(sx, sz));
+  let [ti, tj] = nearestFree(...navCell(tx, tz));
+  const start = si * navH + sj, goal = ti * navH + tj;
+  navRun++;
+  const heap = [];   // [f, node]
+  const push = (f, n) => { heap.push([f, n]); let c = heap.length - 1; while (c > 0) { const p = (c - 1) >> 1; if (heap[p][0] <= heap[c][0]) break; [heap[p], heap[c]] = [heap[c], heap[p]]; c = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let c = 0; for (;;) { const l = c * 2 + 1, r = l + 1; let m = c; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === c) break; [heap[m], heap[c]] = [heap[c], heap[m]]; c = m; } } return top; };
+  const h = (i, j) => { const dx = Math.abs(i - ti), dy = Math.abs(j - tj); return (dx + dy) + (Math.SQRT2 - 2) * Math.min(dx, dy); };
+  navStamp[start] = navRun; navG[start] = 0; navFrom[start] = -1;
+  push(h(si, sj), start);
+  let found = false, iter = 0;
+  while (heap.length && iter++ < 9000) {
+    const [, n] = pop();
+    if (navClosed[n] === navRun) continue;
+    navClosed[n] = navRun;
+    if (n === goal) { found = true; break; }
+    const ni = Math.floor(n / navH), nj = n % navH;
+    for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+      if (!di && !dj) continue;
+      const a = ni + di, b = nj + dj;
+      if (a < 0 || b < 0 || a >= navW || b >= navH) continue;
+      const m = a * navH + b;
+      if (navBlocked[m] || navClosed[m] === navRun) continue;
+      if (di && dj && (navBlocked[ni * navH + b] || navBlocked[a * navH + nj])) continue; // 角を斜めにすり抜けない
+      const g = navG[n] + (di && dj ? Math.SQRT2 : 1);
+      if (navStamp[m] !== navRun || g < navG[m]) { navStamp[m] = navRun; navG[m] = g; navFrom[m] = n; push(g + h(a, b), m); }
+    }
+  }
+  if (!found) return null;
+  const pts = [];
+  for (let n = goal; n !== -1; n = navFrom[n]) pts.push({ x: navX(Math.floor(n / navH)), z: navZ(n % navH) });
+  pts.reverse();
+  pts[pts.length - 1] = { x: tx, z: tz };
+  return pts;
+}
 
 // =========================================================
 // 5. 滑らかなTPSカメラ制御（指数減衰補間・スプリング追従・障害物回避）
@@ -1282,11 +1649,9 @@ function updateSmoothTPSCamera(player, dt) {
   let desiredDist = camConfig.idealDist;
   const rawCamX = pivotX - forwardX * desiredDist;
   const rawCamZ = pivotZ - forwardZ * desiredDist;
-  for (const obs of obstacles) {
-    if (Math.abs(rawCamX - obs.x) < obs.halfW + 0.6 && Math.abs(rawCamZ - obs.z) < obs.halfD + 0.6) {
-      desiredDist = 3.2;
-      break;
-    }
+  // 建物や木にカメラがめりこまないよう、背後をなぞって手前に寄せる
+  for (let t = 0.8; t <= desiredDist; t += 0.4) {
+    if (solidAt(pivotX - forwardX * t, pivotZ - forwardZ * t)) { desiredDist = Math.max(1.4, t - 0.6); break; }
   }
   camConfig.currentDist += (desiredDist - camConfig.currentDist) * (1 - Math.exp(-12 * dt));
 
@@ -1907,67 +2272,65 @@ document.getElementById('sens-slider').addEventListener('input', e => {
 // 8. 移動・衝突判定＆AIロジック
 // =========================================================
 function resolveStageCollisions(f) {
-  // 外周境界
-  f.x = Math.max(-52, Math.min(52, f.x));
-  f.z = Math.max(-52, Math.min(52, f.z));
+  // 外周（幟旗の内側）
+  f.x = Math.max(-MAP.hx + 1, Math.min(MAP.hx - 1, f.x));
+  f.z = Math.max(-MAP.hz + 1, Math.min(MAP.hz - 1, f.z));
 
-  // 連吾川（Z = -4.2 〜 +4.2）は3つの橋（X = -22, 0, +22 付近）以外では渡れない（ジャンプ中は越えられる）
-  const onBridge = Math.abs(f.x - (-22)) < 3.4 || Math.abs(f.x) < 3.4 || Math.abs(f.x - 22) < 3.4;
-  if (!onBridge && f.y < 0.5 && Math.abs(f.z) < 4.2) {
-    f.z = f.z < 0 ? -4.2 : 4.2;
+  // 川は橋の上でしか渡れない（ジャンプ中は越えられる）
+  if (f.y < 0.5) {
+    for (const w of waters) {
+      if (f.x > w.x1 && f.x < w.x2 && f.z > w.z1 && f.z < w.z2 && !bridges.some(b => f.x > b.x1 && f.x < b.x2 && f.z > b.z1 && f.z < b.z2)) {
+        f.z = (f.z - w.z1 < w.z2 - f.z) ? w.z1 - 0.01 : w.z2 + 0.01;
+      }
+    }
+  }
+  // 橋の欄干：橋の上では横にはみ出さない
+  for (const b of bridges) {
+    if (f.z > b.z1 + 0.6 && f.z < b.z2 - 0.6 && f.x > b.x1 - 0.5 && f.x < b.x2 + 0.5) {
+      f.x = Math.max(b.x1 + 0.35, Math.min(b.x2 - 0.35, f.x));
+    }
   }
 
-  // 馬防柵との衝突押し戻し
-  for (const obs of obstacles) {
-    const dx = f.x - obs.x;
-    const dz = f.z - obs.z;
-    if (Math.abs(dx) < obs.halfW + 0.45 && Math.abs(dz) < obs.halfD + 0.45 && f.y < obs.height) {
-      if (Math.abs(dx) / obs.halfW > Math.abs(dz) / obs.halfD) {
-        f.x = obs.x + Math.sign(dx) * (obs.halfW + 0.45);
-      } else {
-        f.z = obs.z + Math.sign(dz) * (obs.halfD + 0.45);
+  // 建物・柵・木・岩
+  const R = 0.45;
+  for (const o of obstacles) {
+    if (f.y >= o.h) continue;
+    if (o.kind === 'box') {
+      const dx = f.x - o.x, dz = f.z - o.z;
+      const ox = o.hw + R - Math.abs(dx), oz = o.hd + R - Math.abs(dz);
+      if (ox > 0 && oz > 0) {
+        if (ox < oz) f.x = o.x + Math.sign(dx || 1) * (o.hw + R);
+        else f.z = o.z + Math.sign(dz || 1) * (o.hd + R);
+      }
+    } else {
+      const dx = f.x - o.x, dz = f.z - o.z, dd = Math.hypot(dx, dz), min = o.r + R;
+      if (dd < min) {
+        if (dd < 1e-4) { f.x = o.x + min; }
+        else { f.x = o.x + dx / dd * min; f.z = o.z + dz / dd * min; }
       }
     }
   }
 }
 
-// 柵の列と川：通れる「すき間」の中心
-const BARRIER_LINES = [
-  { z: -23, off: 1.8, gaps: [-30, -9, 9, 30] },
-  { z: -11, off: 1.8, gaps: [-40, -20.5, 0, 20.5, 40] },
-  { z: 0, off: 5.6, gaps: [-22, 0, 22], river: true },
-  { z: 11, off: 1.8, gaps: [-40, -20.5, 0, 20.5, 40] },
-  { z: 23, off: 1.8, gaps: [-30, -9, 9, 30] }
-];
-function linePassable(L, x) {
-  if (L.river) return [-22, 0, 22].some(b => Math.abs(x - b) < 2.6);
-  return !obstacles.some(o => o.z === L.z && Math.abs(x - o.x) < o.halfW + 0.8);
-}
-// 目的地までの間に柵・川があれば、いちばん近いすき間を経由する
+// 目的地へ向かう次の通過点（A*で道を探し、見通せる先まで飛ばす）
 function routeTo(f, tx, tz) {
-  const dir = Math.sign(tz - f.z);
-  if (!dir) return { x: tx, z: tz };
-  let L = null;
-  for (const line of BARRIER_LINES) {
-    if ((line.z - f.z) * dir > 0.05 && (tz - line.z) * dir > 0.05) {
-      if (!L || Math.abs(line.z - f.z) < Math.abs(L.z - f.z)) L = line;
-    }
+  if (walkClear(f.x, f.z, tx, tz)) { f.path = null; return { x: tx, z: tz }; }
+  const now = performance.now();
+  if (!f.path || now - (f.pathAt || 0) > 700 || Math.hypot(tx - f.pathTx, tz - f.pathTz) > 3) {
+    f.path = findPath(f.x, f.z, tx, tz);
+    f.pathAt = now; f.pathTx = tx; f.pathTz = tz; f.pathI = 0;
   }
-  if (!L) return { x: tx, z: tz };
-  const t = (L.z - f.z) / (tz - f.z);
-  if (linePassable(L, f.x + (tx - f.x) * t)) return { x: tx, z: tz };
-  let best = L.gaps[0], bestCost = Infinity;
-  for (const g of L.gaps) {
-    const c = Math.hypot(g - f.x, L.z - f.z) + Math.hypot(tx - g, tz - L.z);
-    if (c < bestCost) { bestCost = c; best = g; }
+  const p = f.path;
+  if (!p || !p.length) return { x: tx, z: tz };
+  while (f.pathI < p.length - 1 && Math.hypot(p[f.pathI].x - f.x, p[f.pathI].z - f.z) < 1.3) f.pathI++;
+  for (let j = Math.min(p.length - 1, f.pathI + 8); j > f.pathI; j--) {
+    if (walkClear(f.x, f.z, p[j].x, p[j].z)) { f.pathI = j; break; }
   }
-  // すき間の手前に寄ってから、まっすぐ通り抜ける
-  if (Math.abs(f.x - best) > 2.0) return { x: best, z: L.z - dir * L.off };
-  return { x: best, z: L.z + dir * L.off };
+  return p[f.pathI];
 }
 
 function updateFighterAI(f, dt) {
-  const ownFlagZ = f.team === 'east' ? -42 : 42;
+  const ownFlagZ = f.team === 'east' ? -FLAG_Z : FLAG_Z;
   const enemyFlagZ = -ownFlagZ;
   const isMelee = f.charId === 'tomoe';
   const atkRange = isMelee ? 3.3 : 18.0;
@@ -2002,14 +2365,15 @@ function updateFighterAI(f, dt) {
   const distToWp = Math.hypot(dx, dz);
 
   // 攻撃できる距離なら敵の方を向き、そうでなければ進む方向を向く
-  const enemyInRange = nearestEnemy && minDist < atkRange;
+  const los = nearestEnemy && (isMelee || shotClear(f.x, f.z, nearestEnemy.x, nearestEnemy.z));
+  const enemyInRange = nearestEnemy && minDist < atkRange && los;
   const faceYaw = enemyInRange ? Math.atan2(nearestEnemy.x - f.x, nearestEnemy.z - f.z) : moveYaw;
   let diff = faceYaw - f.yaw;
   while (diff > Math.PI) diff -= Math.PI * 2;
   while (diff < -Math.PI) diff += Math.PI * 2;
   f.yaw += diff * Math.min(1, 10 * dt);
 
-  const stopDist = chase ? (isMelee ? 1.8 : 12.0) : 1.0;
+  const stopDist = chase ? (isMelee ? 1.8 : (los ? 12.0 : 2.0)) : 1.0;
   const distToGoal = chase ? Math.hypot(chase.x - f.x, chase.z - f.z) : distToWp;
   if (distToGoal > stopDist && distToWp > 0.3) {
     const speed = f.baseSpeed * 0.8;
@@ -2079,7 +2443,7 @@ function animate(now) {
         if (f.respawnTimer <= 0) {
           f.hp = f.maxHp;
           f.x = (Math.random() - 0.5) * 14;
-          f.z = f.team === 'east' ? -36 : 36;
+          f.z = f.team === 'east' ? -SPAWN_Z : SPAWN_Z;
           if (f.isPlayer) { camConfig.targetYaw = f.team === 'east' ? 0 : Math.PI; }
           f.y = 0; f.vy = 0; f.isGrounded = true;
           f.dashActiveTimer = 0; f.queue.length = 0;
@@ -2156,8 +2520,8 @@ function animate(now) {
     if (authority) {
     // 本陣の旗の占領：守る側が円の中にいると止まり、だれもいないと少しずつ戻る
     const inCamp = (team, z) => fighters.some(f => f.team === team && f.respawnTimer <= 0 && Math.hypot(f.x, f.z - z) < 5.0);
-    const eAtk = inCamp('east', 42), wDef = inCamp('west', 42);
-    const wAtk = inCamp('west', -42), eDef = inCamp('east', -42);
+    const eAtk = inCamp('east', FLAG_Z), wDef = inCamp('west', FLAG_Z);
+    const wAtk = inCamp('west', -FLAG_Z), eDef = inCamp('east', -FLAG_Z);
     if (eAtk && !wDef) eastFlagProgress = Math.min(100, eastFlagProgress + 18 * dt);
     else if (!eAtk) eastFlagProgress = Math.max(0, eastFlagProgress - 8 * dt);
     if (wAtk && !eDef) westFlagProgress = Math.min(100, westFlagProgress + 18 * dt);
@@ -2175,7 +2539,12 @@ function animate(now) {
 
       let removeProj = p.life <= 0;
 
-      // 弾・矢は馬防柵のすき間をぬけて届く（長篠の柵越し射撃）
+      // 弾・矢は馬防柵のすき間をぬけて届くが、建物・城・木・岩には当たって止まる
+      if (!removeProj && solidAt(p.mesh.position.x, p.mesh.position.z)) {
+        removeProj = true;
+        spawnSparks(p.mesh.position.x, p.mesh.position.y, p.mesh.position.z, 0xc9b28a, 5, 2.5);
+        spawnPuff(p.mesh.position.x, p.mesh.position.y, p.mesh.position.z, 0xbfb5a0, 0.8, 0.4, 0.5);
+      }
 
       // 敵武将との当たり判定
       for (const target of fighters) {
@@ -2231,6 +2600,8 @@ function animate(now) {
 
     // カメラとHUD更新
     updateSmoothTPSCamera(playerFighter, dt);
+    if (playerFighter) followShadow(playerFighter.x, playerFighter.z);
+    drawMinimap();
     updatePlayerHud();
     updateOverheadBars();
     updateAimGuide();
@@ -2392,7 +2763,7 @@ function startBattle(roster, myId) {
   roster.forEach(slot => {
     const i = slotIdx[slot.team]++;
     const isMe = slot.id === myId;
-    const z = slot.team === 'east' ? -36 : 36;
+    const z = slot.team === 'east' ? -SPAWN_Z : SPAWN_Z;
     const label = slot.kind === 'human' ? (isMe ? null : slot.name) : null;
     const f = createFighter(slot.char, slot.team, isMe, xs[i % 3], z, label);
     f.netId = slot.id;
@@ -2639,8 +3010,10 @@ function updateAimGuide() {
   f.rig.muzzlePoint.getWorldPosition(_mz);
   const sx = _mz.x, sz = _mz.z, y = f.y + 1.35;
   const range = f.charId === 'yoichi' ? 40 * 1.3 : 46 * 1.3;
-  // 最初に当たる敵を探す
+  // 建物・木に当たる手前で止める
   let hitT = range, hit = false;
+  for (let t = 0.5; t < range; t += 0.5) { if (solidAt(sx + dirX * t, sz + dirZ * t)) { hitT = t; break; } }
+  // 最初に当たる敵を探す
   for (const e of enemies) {
     const ex = e.x - sx, ez = e.z - sz;
     const t = ex * dirX + ez * dirZ;
@@ -3205,6 +3578,70 @@ function netReceive() {
     }
   }
   if (changed) updateHudScores();
+}
+
+// =========================================================
+// 14. ミニマップ（自分の本陣が下に来る向き）
+// =========================================================
+const miniCanvas = document.getElementById('minimap');
+const miniCtx = miniCanvas.getContext('2d');
+const miniBg = {};
+function miniProj(team, W, H) {
+  return team === 'west'
+    ? (x, z) => [(x + MAP.hx) / (MAP.hx * 2) * W, (z + MAP.hz) / (MAP.hz * 2) * H]
+    : (x, z) => [(MAP.hx - x) / (MAP.hx * 2) * W, (MAP.hz - z) / (MAP.hz * 2) * H];
+}
+function buildMiniBg(team) {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const W = 112 * dpr, H = 152 * dpr;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const P = miniProj(team, W, H);
+  const rect = (x1, z1, x2, z2, col) => { const a = P(x1, z1), b = P(x2, z2); g.fillStyle = col; g.fillRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])); };
+  g.fillStyle = '#4d7a35'; g.fillRect(0, 0, W, H);
+  waters.forEach(w => rect(w.x1, w.z1, w.x2, w.z2, '#3a8fc9'));
+  bridges.forEach(b => rect(b.x1, b.z1, b.x2, b.z2, '#a07848'));
+  obstacles.forEach(o => {
+    if (o.kind === 'box') rect(o.x - o.hw, o.z - o.hd, o.x + o.hw, o.z + o.hd, o.shot ? '#d8cdb4' : '#7a5530');
+    else { const p = P(o.x, o.z); g.fillStyle = o.h > 5 ? '#26502a' : '#8a8a82'; g.beginPath(); g.arc(p[0], p[1], Math.max(1, o.r / (MAP.hx * 2) * W * 1.6), 0, Math.PI * 2); g.fill(); }
+  });
+  [[-FLAG_Z, '#3498db'], [FLAG_Z, '#e74c3c']].forEach(([z, col]) => {
+    const p = P(0, z); g.strokeStyle = col; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(p[0], p[1], 5 / (MAP.hx * 2) * W, 0, Math.PI * 2); g.stroke();
+  });
+  return { c, dpr };
+}
+function drawMinimap() {
+  if (!playerFighter) return;
+  const team = playerFighter.team;
+  const bg = miniBg[team] || (miniBg[team] = buildMiniBg(team));
+  const dpr = bg.dpr, W = 112 * dpr, H = 152 * dpr;
+  if (miniCanvas.width !== W) { miniCanvas.width = W; miniCanvas.height = H; }
+  miniCtx.drawImage(bg.c, 0, 0);
+  const P = miniProj(team, W, H);
+  // 旗の占領ゲージ
+  [[FLAG_Z, eastFlagProgress, '#3498db'], [-FLAG_Z, westFlagProgress, '#e74c3c']].forEach(([z, pr, col]) => {
+    if (pr <= 0) return;
+    const p = P(0, z); miniCtx.strokeStyle = col; miniCtx.lineWidth = 3 * dpr;
+    miniCtx.beginPath(); miniCtx.arc(p[0], p[1], 9 * dpr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pr / 100); miniCtx.stroke();
+  });
+  for (const f of fighters) {
+    if (f.respawnTimer > 0 || f.gone) continue;
+    const p = P(f.x, f.z);
+    if (f.isPlayer) continue;
+    miniCtx.fillStyle = f.team === 'east' ? '#5bc0ff' : '#ff6b6b';
+    miniCtx.strokeStyle = '#111'; miniCtx.lineWidth = 1 * dpr;
+    miniCtx.beginPath(); miniCtx.arc(p[0], p[1], (f.kind === 'human' ? 3.4 : 2.6) * dpr, 0, Math.PI * 2); miniCtx.fill(); miniCtx.stroke();
+  }
+  // 自分（向きつき）
+  if (playerFighter.respawnTimer <= 0) {
+    const p = P(playerFighter.x, playerFighter.z);
+    const a = P(playerFighter.x + Math.sin(playerFighter.yaw) * 6, playerFighter.z + Math.cos(playerFighter.yaw) * 6);
+    const ang = Math.atan2(a[1] - p[1], a[0] - p[0]);
+    miniCtx.save(); miniCtx.translate(p[0], p[1]); miniCtx.rotate(ang);
+    miniCtx.fillStyle = '#ffd700'; miniCtx.strokeStyle = '#111'; miniCtx.lineWidth = 1 * dpr;
+    miniCtx.beginPath(); miniCtx.moveTo(6 * dpr, 0); miniCtx.lineTo(-4 * dpr, 4 * dpr); miniCtx.lineTo(-2 * dpr, 0); miniCtx.lineTo(-4 * dpr, -4 * dpr); miniCtx.closePath();
+    miniCtx.fill(); miniCtx.stroke(); miniCtx.restore();
+  }
 }
 
 window.addEventListener('resize', () => {
