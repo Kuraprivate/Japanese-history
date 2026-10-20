@@ -2759,7 +2759,8 @@ function makeTestPeer(id) {
 }
 function newPeer(id) {
   if (coopTestMode) return Promise.resolve(makeTestPeer(id));
-  return loadPeerLib().then(() => id ? new Peer(id) : new Peer());
+  const opts = window.PEER_OPTIONS || {};
+  return loadPeerLib().then(() => id ? new Peer(id, opts) : new Peer(opts));
 }
 
 // 部屋：presence(自分の状態) / peers(全員の状態) / onPeers(変化の通知) / leave
@@ -2780,7 +2781,7 @@ function peerRoom(code, create) {
         for (const k in patch) { if (patch[k] === null) delete mine[k]; else mine[k] = patch[k]; }
         rebuild();
         if (create) dirty = true;
-        else if (hostConn && hostConn.open !== false) { try { hostConn.send({ t: 'p', pr: mine }); } catch (e) {} }
+        else if (hostConn && hostConn.open) { try { hostConn.send({ t: 'p', pr: mine }); lastKeep = Date.now(); } catch (e) {} }
         return Promise.resolve();
       },
       peers() { return snap; },
@@ -2800,13 +2801,31 @@ function peerRoom(code, create) {
       try { peer.destroy(); } catch (e) {}
       if (room.onClosed) room.onClosed();
     }
-    // ホストは全員の状態を 1秒に20回 まとめて配る
-    const timer = setInterval(() => {
-      if (!create || !dirty) return;
-      dirty = false;
+    // ホストは全員の状態を配る：変化があれば1秒に20回、なくても0.5秒ごとに必ず送る
+    //（最初の数通が届かなくても、すぐに追いつけるように）
+    const lastSeen = new Map();   // ホスト：相手から最後に受け取った時刻
+    let lastHostMsg = Date.now(); // ゲスト：ホストから最後に受け取った時刻
+    let lastFull = 0, lastKeep = 0;
+    function sendAll(c) {
       const all = [[hostId, mine]];
       others.forEach((pr, id) => all.push([id, pr]));
-      conns.forEach(c => { try { if (c.open !== false) c.send({ t: 'all', ps: all }); } catch (e) {} });
+      try { if (c.open) c.send({ t: 'all', ps: all }); } catch (e) {}
+    }
+    const timer = setInterval(() => {
+      const now = Date.now();
+      if (create) {
+        // 8秒なにも届かない相手は退出したとみなす
+        lastSeen.forEach((t, id) => {
+          if (now - t > 8000) { const c = conns.get(id); conns.delete(id); others.delete(id); lastSeen.delete(id); try { c && c.close(); } catch (e) {} rebuild(); dirty = true; }
+        });
+        if (dirty || now - lastFull > 500) {
+          dirty = false; lastFull = now;
+          conns.forEach(sendAll);
+        }
+      } else if (hostConn) {
+        if (now - lastKeep > 500) { lastKeep = now; try { if (hostConn.open) hostConn.send({ t: 'p', pr: mine }); } catch (e) {} }
+        if (settled && now - lastHostMsg > 8000) lost();
+      }
     }, 50);
     const fail = msg => { if (settled) return; settled = true; clearInterval(timer); try { peer.destroy(); } catch (e) {} reject(new Error(msg)); };
     const ok = () => { if (settled) return; settled = true; rebuild(); resolve(room); };
@@ -2824,21 +2843,25 @@ function peerRoom(code, create) {
       peer.on('connection', conn => {
         if (conns.size >= 5) { setTimeout(() => { try { conn.close(); } catch (e) {} }, 300); return; }
         conns.set(conn.peer, conn);
+        lastSeen.set(conn.peer, Date.now());
+        conn.on('open', () => sendAll(conn));
         conn.on('data', m => {
+          lastSeen.set(conn.peer, Date.now());
           if (!m || m.t !== 'p' || typeof m.pr !== 'object' || m.pr === null) return;
           others.set(conn.peer, Object.freeze(m.pr));
           dirty = true; rebuild();
         });
-        conn.on('close', () => { conns.delete(conn.peer); others.delete(conn.peer); dirty = true; rebuild(); });
+        conn.on('close', () => { conns.delete(conn.peer); others.delete(conn.peer); lastSeen.delete(conn.peer); dirty = true; rebuild(); });
         conn.on('error', () => {});
         dirty = true;
       });
     } else {
       peer.on('open', id => {
         myId = id;
-        hostConn = peer.connect(hostId, { reliable: true });
-        hostConn.on('open', () => { clearTimeout(to); try { hostConn.send({ t: 'p', pr: mine }); } catch (e) {} ok(); });
+        hostConn = peer.connect(hostId, { reliable: true, serialization: 'json' });
+        hostConn.on('open', () => { clearTimeout(to); lastHostMsg = Date.now(); try { hostConn.send({ t: 'p', pr: mine }); } catch (e) {} ok(); });
         hostConn.on('data', m => {
+          lastHostMsg = Date.now();
           if (!m || m.t !== 'all' || !Array.isArray(m.ps)) return;
           others.clear();
           m.ps.forEach(e => { if (Array.isArray(e) && typeof e[0] === 'string' && e[0] !== myId && e[1] && typeof e[1] === 'object') others.set(e[0], Object.freeze(e[1])); });
@@ -3009,7 +3032,7 @@ function renderRoom() {
   if (battleRunning && !amHost) status = 'いま合戦中です。終わったら次の合戦に参加できます。';
   else if (amHost) status = allReady ? '全員の準備ができました。' : '全員の「準備OK」を待っています。';
   else status = 'ホストが合戦を始めるのを待っています。';
-  document.getElementById('room-status').textContent = status;
+  document.getElementById('room-status').textContent = status + `（部屋にいる人：${players.length}人）`;
 }
 
 document.getElementById('create-room-btn').addEventListener('click', () => enterRoom(newCode(), true));
