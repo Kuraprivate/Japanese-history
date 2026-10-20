@@ -1,0 +1,3194 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>れきし大乱戦</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; margin: 0; padding: 0; }
+  body, html { width: 100%; height: 100%; overflow: hidden; background: #111; font-family: "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif; color: #fff; }
+  #game-canvas { width: 100%; height: 100%; display: block; }
+
+  /* オーバーレイ画面共通 */
+  .screen {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: flex-start;
+    background: radial-gradient(circle at center, rgba(25,20,15,0.82) 0%, rgba(10,8,6,0.95) 100%);
+    z-index: 20; padding: 16px; overflow-y: auto;
+  }
+  .hidden { display: none !important; }
+
+  /* 和風パネル・ボタン */
+  .wafu-panel {
+    background: rgba(28, 22, 18, 0.94);
+    border: 2px solid #d4af37;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8), inset 0 0 15px rgba(212,175,55,0.15);
+    padding: 20px;
+    max-width: 920px;
+    width: 100%;
+  }
+  .title-logo {
+    font-size: clamp(26px, 4.5vw, 44px);
+    font-weight: 900;
+    color: #ffd700;
+    text-shadow: 0 3px 0 #8b0000, 0 6px 15px rgba(0,0,0,0.9);
+    letter-spacing: 2px;
+    text-align: center;
+    margin-bottom: 4px;
+  }
+  .subtitle-logo {
+    font-size: clamp(13px, 2vw, 17px);
+    color: #f0e6d2;
+    text-align: center;
+    margin-bottom: 18px;
+    letter-spacing: 1px;
+  }
+  .btn {
+    background: linear-gradient(180deg, #c83228 0%, #7c140e 100%);
+    border: 2px solid #ffd700;
+    color: #fff;
+    padding: 11px 24px;
+    font-size: 16px;
+    font-weight: bold;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.12s, box-shadow 0.12s;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(255,215,0,0.35); }
+  .btn:active { transform: translateY(1px); }
+  .btn-sub {
+    background: linear-gradient(180deg, #3a4a5e 0%, #1e2733 100%);
+    border-color: #9ab0c7;
+  }
+
+  /* キャラ選択カード */
+  .char-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  .char-card {
+    background: rgba(45, 36, 28, 0.85);
+    border: 2px solid #6e5a44;
+    border-radius: 10px;
+    padding: 14px;
+    cursor: pointer;
+    transition: all 0.18s;
+    position: relative;
+  }
+  .char-card.selected {
+    border-color: #ffd700;
+    background: rgba(85, 60, 25, 0.9);
+    box-shadow: 0 0 18px rgba(255, 215, 0, 0.45);
+    transform: translateY(-3px);
+  }
+  .char-card h3 { font-size: 20px; color: #ffd700; margin-bottom: 4px; }
+  .char-era { font-size: 12px; background: #5a3e28; padding: 2px 8px; border-radius: 4px; color: #ffdf91; display: inline-block; margin-bottom: 8px; }
+  .char-desc { font-size: 13px; color: #ddd; line-height: 1.45; margin-bottom: 8px; }
+  .char-skill { font-size: 12px; color: #ffae70; background: rgba(0,0,0,0.4); padding: 6px 8px; border-radius: 6px; }
+
+  /* HUD (試合中UI) */
+  #hud { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
+  .hud-top {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 12px;
+    background: rgba(15, 15, 20, 0.85);
+    border: 2px solid #d4af37;
+    border-radius: 12px; padding: 8px 18px;
+    pointer-events: auto;
+  }
+  .team-score { font-size: 18px; font-weight: 900; min-width: 90px; text-align: center; }
+  .east-color { color: #5bc0ff; }
+  .west-color { color: #ff6b6b; }
+  .timer-box {
+    font-size: 24px; font-weight: 900; color: #ffd700;
+    padding: 0 12px; border-left: 1px solid #555; border-right: 1px solid #555;
+  }
+
+  /* 旗ゲージ */
+  .flag-bars {
+    position: absolute; top: 68px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 16px; width: min(500px, 90vw);
+  }
+  .flag-bar-wrap {
+    flex: 1; background: rgba(0,0,0,0.7); border: 1px solid #aaa;
+    border-radius: 6px; padding: 4px 8px; font-size: 12px;
+  }
+  .progress-bg { width: 100%; height: 8px; background: #222; border-radius: 4px; overflow: hidden; margin-top: 3px; }
+  .progress-fill { height: 100%; width: 0%; transition: width 0.15s; }
+
+  #lock-hint {
+    position: absolute; top: 58%; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.75); border: 1px solid #ffd700; color: #ffd700;
+    padding: 8px 16px; border-radius: 20px; font-size: 14px; font-weight: bold; white-space: nowrap;
+  }
+  /* ロビー */
+  .lobby-top { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .lobby-top label { font-size: 13px; color: #ffdf91; font-weight: bold; }
+  .txt-in { background: #1b1612; border: 2px solid #8c6d3b; color: #fff; border-radius: 8px; padding: 9px 12px; font-size: 15px; min-width: 0; }
+  .txt-in:focus { outline: none; border-color: #ffd700; }
+  .sec-label { font-size: 12px; letter-spacing: 0.15em; color: #c9b48a; font-weight: bold; margin: 4px 0 8px; }
+  .mode-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .mode-card { background: rgba(45, 36, 28, 0.85); border: 2px solid #6e5a44; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .mode-card h3 { color: #ffd700; font-size: 18px; }
+  .mode-card p { font-size: 13px; color: #ddd; line-height: 1.5; }
+  .mode-card .note { font-size: 12px; color: #ff9a7e; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .row .txt-in { flex: 1 1 120px; text-transform: uppercase; letter-spacing: 0.2em; }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+  .code-big { font-size: 30px; font-weight: 900; letter-spacing: 0.3em; color: #ffd700; font-variant-numeric: tabular-nums; }
+  .teams { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+  @media (max-width: 520px) { .teams { grid-template-columns: 1fr; } }
+  .team-col { border-radius: 10px; padding: 10px; background: rgba(0,0,0,0.35); border: 2px solid; min-width: 0; }
+  .team-col.east { border-color: #3498db; } .team-col.west { border-color: #e74c3c; }
+  .team-col h4 { font-size: 16px; margin-bottom: 8px; }
+  .slot { display: flex; justify-content: space-between; gap: 8px; padding: 7px 9px; border-radius: 6px; background: rgba(255,255,255,0.06); margin-bottom: 6px; font-size: 14px; }
+  .slot.cpu { color: #999; font-style: italic; }
+  .slot .tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #5a3e28; color: #ffdf91; white-space: nowrap; }
+  .slot .tag.ok { background: #1f6b3a; color: #b8ffcf; }
+  .slot b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pick { padding: 6px 12px; font-size: 13px; }
+  .pick.on { background: linear-gradient(180deg, #d4a017 0%, #8a6500 100%); color: #111; }
+  #pause-screen .wafu-panel { max-width: 440px; display: flex; flex-direction: column; gap: 12px; }
+  #pause-screen h2 { color: #ffd700; text-align: center; }
+  #pause-note { font-size: 13px; color: #ccc; text-align: center; line-height: 1.5; }
+  #pause-screen label { display: flex; justify-content: space-between; font-size: 13px; }
+  .hud-btns { display: flex; gap: 6px; }
+  /* ダメージ数字・頭上HPバー・被弾の赤フラッシュ */
+  #fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 9; overflow: hidden; }
+  .ov-bar { position: absolute; left: 0; top: 0; width: 54px; height: 7px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.85); border-radius: 4px; }
+  .ov-bar i { display: block; height: 100%; border-radius: 3px; transition: width 0.12s; }
+  .ov-bar span { position: absolute; bottom: 9px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: bold; white-space: nowrap; text-shadow: 0 1px 2px #000, 0 0 3px #000; }
+  .ov-bar.flash { border-color: #ff4030; box-shadow: 0 0 8px #ff4030; }
+  .dmg { position: absolute; left: 0; top: 0; font-weight: 900; font-size: 17px; color: #fff; white-space: nowrap;
+    text-shadow: 0 0 3px #000, 0 2px 0 #000; animation: dmgUp 0.8s ease-out forwards; }
+  .dmg.deal { color: #ffd84a; font-size: 26px; }
+  .dmg.hurt { color: #ff5a4a; font-size: 22px; }
+  .dmg.ko { color: #fff; font-size: 30px; animation-duration: 1.3s; text-shadow: 0 0 6px #ff3b30, 0 3px 0 #000; }
+  @keyframes dmgUp { 0% { opacity: 0; margin-top: 8px; scale: 0.5; } 15% { opacity: 1; margin-top: 0; scale: 1.25; }
+    30% { scale: 1; } 100% { opacity: 0; margin-top: -50px; scale: 1; } }
+  #hurt-vignette { position: fixed; inset: 0; pointer-events: none; z-index: 8; opacity: 0;
+    box-shadow: inset 0 0 140px 50px rgba(220, 20, 20, 0.9); transition: opacity 0.4s ease-out; }
+  #hurt-vignette.on { opacity: 1; transition: none; }
+  #crosshair { transition: transform 0.08s; }
+  #crosshair.hit { transform: translate(-50%, -50%) rotate(45deg) scale(1.25); }
+  #crosshair.hit::before, #crosshair.hit::after { background: #ff3b30; }
+  @media (prefers-reduced-motion: reduce) { .dmg { animation-duration: 0.4s; } }
+  /* 中央クロスヘア */
+  #crosshair {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 28px; height: 28px;
+    pointer-events: none;
+  }
+  #crosshair::before, #crosshair::after {
+    content: ""; position: absolute; background: rgba(255,255,255,0.88);
+    box-shadow: 0 0 4px #000;
+  }
+  #crosshair::before { top: 13px; left: 4px; width: 20px; height: 2px; }
+  #crosshair::after { left: 13px; top: 4px; height: 20px; width: 2px; }
+  #crosshair-dot {
+    position: absolute; top: 12px; left: 12px; width: 4px; height: 4px;
+    border-radius: 50%; background: #ffd700;
+  }
+
+  /* プレイヤーHP & スキルバー */
+  .hud-bottom-left {
+    position: absolute; bottom: 20px; left: 20px;
+    background: rgba(15, 15, 20, 0.85);
+    border: 2px solid #d4af37; border-radius: 10px;
+    padding: 12px 16px; width: 270px;
+  }
+  .hp-bar-bg { width: 100%; height: 16px; background: #331111; border-radius: 8px; overflow: hidden; border: 1px solid #888; margin-top: 4px; }
+  .hp-bar-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #2ecc71, #a3ff70); transition: width 0.15s; }
+
+  /* アクションボタン（スマホ＆PCクリック両対応） */
+  .hud-bottom-right {
+    position: absolute; bottom: 20px; right: 20px;
+    display: flex; gap: 10px; align-items: flex-end;
+    pointer-events: auto;
+  }
+  .action-btn {
+    width: 68px; height: 68px; border-radius: 50%;
+    background: rgba(30, 25, 20, 0.88);
+    border: 3px solid #ffd700; color: #fff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-weight: bold; font-size: 13px; cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+    position: relative; overflow: hidden;
+  }
+  .action-btn.skill-btn { width: 78px; height: 78px; border-color: #ff6b2b; background: rgba(70, 25, 10, 0.9); }
+  .action-btn:active { transform: scale(0.93); }
+  .key-hint { font-size: 10px; color: #ffd700; margin-top: 2px; }
+  .cd-overlay {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(0,0,0,0.75); height: 0%;
+    transition: height 0.1s linear;
+  }
+
+  /* 仮想ジョイスティック */
+  #joystick-zone {
+    position: absolute; bottom: 110px; left: 26px;
+    width: 120px; height: 120px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    border: 2px solid rgba(255,215,0,0.45);
+    pointer-events: auto;
+    touch-action: none;
+  }
+  #joystick-knob {
+    position: absolute; top: 35px; left: 35px;
+    width: 50px; height: 50px; border-radius: 50%;
+    background: radial-gradient(circle, #ffd700 0%, #b8860b 100%);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    pointer-events: none;
+  }
+
+  /* 右上設定・操作ガイド */
+  .hud-top-right {
+    position: absolute; top: 10px; right: 14px;
+    display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
+    pointer-events: auto;
+  }
+  .small-btn {
+    background: rgba(20, 20, 28, 0.88); border: 1px solid #d4af37;
+    color: #ffd700; padding: 6px 12px; border-radius: 6px;
+    font-size: 12px; cursor: pointer; font-weight: bold;
+  }
+  #settings-panel {
+    background: rgba(20, 18, 15, 0.95); border: 1px solid #d4af37;
+    border-radius: 8px; padding: 12px; width: 230px; font-size: 12px;
+  }
+  #settings-panel label { display: flex; justify-content: space-between; margin: 6px 0 2px; }
+  #settings-panel input[type=range] { width: 100%; }
+
+  /* キルログ・アナウンス */
+  #announce-banner {
+    position: absolute; top: 118px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.8); border: 1px solid #ffd700;
+    padding: 6px 18px; border-radius: 20px; font-weight: bold;
+    color: #ffd700; font-size: 14px; opacity: 0; transition: opacity 0.25s;
+  }
+
+  /* 図鑑3Dビューア */
+  #zukan-canvas-wrap {
+    width: 100%; height: 280px; background: radial-gradient(circle, #2e251d 0%, #120e0a 100%);
+    border: 2px solid #8c6d3b; border-radius: 10px; position: relative; overflow: hidden;
+    margin-bottom: 12px; cursor: grab;
+  }
+  /* 縦に長いとき上が切れないように中央寄せは margin:auto で行う */
+  .screen > .wafu-panel { margin: auto; }
+  #game-canvas, #hud, .action-btn, #joystick-zone { touch-action: none; }
+  @media (pointer: fine) { #joystick-zone { display: none; } }
+  /* スマホ幅：HP枠とボタンが重ならないよう配置を詰める */
+  @media (max-width: 640px) {
+    .hud-top { padding: 6px 10px; gap: 8px; }
+    .team-score { min-width: 0; font-size: 14px; white-space: nowrap; }
+    .hud-top-right { top: 112px; right: 10px; }
+    #announce-banner { top: 150px; max-width: 90vw; text-align: center; }
+    .timer-box { font-size: 18px; padding: 0 8px; }
+    .hud-bottom-left { width: 150px; left: 12px; bottom: 12px; padding: 8px 10px; }
+    #joystick-zone { left: 18px; bottom: 96px; }
+    .hud-bottom-right { right: 12px; bottom: 12px; display: grid; grid-template-columns: repeat(2, 62px); gap: 8px; }
+    .action-btn, .action-btn.skill-btn { width: 62px; height: 62px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="game-canvas"></canvas>
+<div id="hurt-vignette"></div>
+<div id="fx-layer"></div>
+
+<!-- 1. タイトル＆武将選択画面 -->
+<div id="title-screen" class="screen">
+  <div class="wafu-panel">
+    <div class="title-logo">れきし大乱戦</div>
+    <div class="subtitle-logo">〜戦国・源平バトルごっこ（長篠の合戦 3対3）〜</div>
+
+    <div class="lobby-top">
+      <label for="player-name">名前</label>
+      <input id="player-name" class="txt-in" maxlength="10" style="flex:1 1 140px;">
+      <button class="btn btn-sub" id="open-zukan-btn">人物図鑑・3D鑑賞</button>
+    </div>
+
+    <div class="sec-label">武将をえらぶ</div>
+    <div class="char-grid" id="char-select-grid"></div>
+
+    <div class="sec-label">あそびかた</div>
+    <div class="mode-grid">
+      <div class="mode-card">
+        <h3>ひとりで練習</h3>
+        <p>あなたと味方CPU2人の東軍で、西軍CPU3人と戦う。長篠の合戦場で、敵本陣の旗を奪うか、2分間の撃破数で勝負。</p>
+        <button class="btn" id="start-quiz-btn">出陣する</button>
+      </div>
+      <div class="mode-card">
+        <h3>友達と対戦</h3>
+        <p>部屋コードで集まり、同じ軍で組むことも、敵どうしになることもできる。空いた席にはCPUが入る。</p>
+        <button class="btn" id="create-room-btn">部屋を作る</button>
+        <div class="row">
+          <input id="room-code-in" class="txt-in" maxlength="4" placeholder="コード4文字" autocomplete="off">
+          <button class="btn btn-sub" id="join-room-btn">部屋に入る</button>
+        </div>
+        <div class="note" id="online-note"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 部屋（オンライン対戦の待合所） -->
+<div id="room-screen" class="screen hidden">
+  <div class="wafu-panel" style="max-width:680px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap;">
+      <div>
+        <div class="sec-label">部屋コード（友達に伝えてください）</div>
+        <div class="row"><span class="code-big" id="room-code-label">----</span><button class="small-btn" id="copy-code-btn">コピー</button></div>
+      </div>
+      <button class="btn btn-sub" id="leave-room-btn" style="padding:8px 16px;">部屋を出る</button>
+    </div>
+    <div class="teams">
+      <div class="team-col east"><h4 class="east-color">東軍</h4><div id="east-slots"></div></div>
+      <div class="team-col west"><h4 class="west-color">西軍</h4><div id="west-slots"></div></div>
+    </div>
+    <div class="sec-label">あなたの設定</div>
+    <div class="row" style="margin-bottom:8px;">
+      <button class="btn btn-sub pick" id="team-east-btn">東軍に入る</button>
+      <button class="btn btn-sub pick" id="team-west-btn">西軍に入る</button>
+    </div>
+    <div class="row" id="room-char-picks" style="margin-bottom:12px;"></div>
+    <div class="row">
+      <button class="btn btn-sub" id="ready-btn">準備OK</button>
+      <button class="btn" id="host-start-btn">合戦開始</button>
+      <span id="room-status" style="font-size:13px; color:#ccc;"></span>
+    </div>
+    <p style="font-size:12px; color:#999; margin-top:12px; line-height:1.5;">友達にこのページのURLと部屋コードを伝えてください。部屋を作った人（ホスト）がページを閉じると、部屋はなくなります。</p>
+  </div>
+</div>
+
+<!-- 一時停止 -->
+<div id="pause-screen" class="screen hidden">
+  <div class="wafu-panel">
+    <h2>一時停止</h2>
+    <p id="pause-note"></p>
+    <button class="btn" id="resume-btn">再開する</button>
+    <button class="btn btn-sub" id="view-toggle-btn">視点：三人称</button>
+    <label><span>視点回転感度</span><span id="sens-val2">1.0x</span></label>
+    <input type="range" id="sens-slider2" min="0.4" max="2.2" step="0.1" value="1.0">
+    <button class="btn btn-sub" id="quit-btn">試合をやめてロビーへ</button>
+  </div>
+</div>
+
+<!-- 2. 人物図鑑＆3Dモデル鑑賞モーダル -->
+<div id="zukan-screen" class="screen hidden">
+  <div class="wafu-panel">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <h2 style="color:#ffd700;">歴史人物図鑑 ＆ 3D武装鑑賞</h2>
+      <button class="btn btn-sub" id="close-zukan-btn" style="padding:6px 16px;">戻る</button>
+    </div>
+    <div style="display:flex; gap:8px; margin-bottom:10px;" id="zukan-tabs"></div>
+    <div id="zukan-canvas-wrap">
+      <canvas id="zukan-canvas" style="width:100%; height:100%; display:block;"></canvas>
+      <div style="position:absolute; bottom:8px; left:10px; font-size:12px; color:#ccc;">
+        左右ドラッグで360度回転
+      </div>
+      <div style="position:absolute; bottom:8px; right:10px; display:flex; gap:6px;">
+        <button class="small-btn" id="zukan-atk-btn">通常攻撃モーション</button>
+        <button class="small-btn" id="zukan-skill-btn">必殺技モーション</button>
+      </div>
+    </div>
+    <div id="zukan-info" style="font-size:14px; line-height:1.6; color:#f0e6d2;"></div>
+  </div>
+</div>
+
+<!-- 4. 試合中HUD -->
+<div id="hud" class="hidden">
+  <div class="hud-top">
+    <div class="team-score east-color">東軍 <span id="east-kills">0</span> 撃破</div>
+    <div class="timer-box" id="timer-text">02:00</div>
+    <div class="team-score west-color">西軍 <span id="west-kills">0</span> 撃破</div>
+  </div>
+
+  <div class="flag-bars">
+    <div class="flag-bar-wrap">
+      <div style="display:flex; justify-content:space-between;"><span class="east-color">東軍による敵本陣占領</span><span id="east-flag-pct">0%</span></div>
+      <div class="progress-bg"><div class="progress-fill" id="east-flag-bar" style="background:#3498db;"></div></div>
+    </div>
+    <div class="flag-bar-wrap">
+      <div style="display:flex; justify-content:space-between;"><span class="west-color">西軍による敵本陣占領</span><span id="west-flag-pct">0%</span></div>
+      <div class="progress-bg"><div class="progress-fill" id="west-flag-bar" style="background:#e74c3c;"></div></div>
+    </div>
+  </div>
+
+  <div id="announce-banner">合戦開始！</div>
+
+  <div id="lock-hint" class="hidden">画面をクリックすると、マウスで視点を動かせます（Escでカーソルを戻す）</div>
+  <div id="crosshair"><div id="crosshair-dot"></div></div>
+
+  <div class="hud-top-right">
+    <div class="hud-btns">
+      <button class="small-btn" id="pause-btn">Ⅱ 中断 [P]</button>
+      <button class="small-btn" id="hud-view-btn">一人称 [V]</button>
+      <button class="small-btn" id="toggle-settings-btn">感度</button>
+    </div>
+    <div id="settings-panel" class="hidden">
+      <label><span>視点回転感度</span><span id="sens-val">1.0x</span></label>
+      <input type="range" id="sens-slider" min="0.4" max="2.2" step="0.1" value="1.0">
+      <div style="margin-top:6px; color:#bbb; font-size:11px; line-height:1.4;">
+        PC：ドラッグで視点 / クリック（長押しで連続）で攻撃 / WASD移動 / Space跳躍 / Shift疾走 / F必殺技<br>スマホ：左スティックで移動 / 画面右側スワイプで視点
+      </div>
+    </div>
+  </div>
+
+  <div id="joystick-zone">
+    <div id="joystick-knob"></div>
+  </div>
+
+  <div class="hud-bottom-left">
+    <div style="display:flex; justify-content:space-between; align-items:baseline;">
+      <span id="hud-char-name" style="font-weight:bold; color:#ffd700; font-size:16px;">織田信長</span>
+    </div>
+    <div style="font-size:12px; color:#ccc; margin-top:2px;">体力 <span id="hp-text">100 / 100</span></div>
+    <div class="hp-bar-bg"><div class="hp-bar-fill" id="hp-bar"></div></div>
+  </div>
+
+  <div class="hud-bottom-right">
+    <div class="action-btn" id="btn-jump">
+      <span>跳躍</span>
+      <span class="key-hint">[Space]</span>
+    </div>
+    <div class="action-btn" id="btn-dash">
+      <span>疾走</span>
+      <span class="key-hint">[Shift]</span>
+      <div class="cd-overlay" id="cd-dash"></div>
+    </div>
+    <div class="action-btn" id="btn-attack">
+      <span>攻撃</span>
+      <span class="key-hint">[Click]</span>
+      <div class="cd-overlay" id="cd-attack"></div>
+    </div>
+    <div class="action-btn skill-btn" id="btn-skill">
+      <span id="skill-btn-label">必殺技</span>
+      <span class="key-hint">[F / E]</span>
+      <div class="cd-overlay" id="cd-skill"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 5. リザルト＆ひとこと歴史豆知識画面 -->
+<div id="result-screen" class="screen hidden">
+  <div class="wafu-panel" style="max-width:620px; text-align:center;">
+    <h1 id="result-title" class="title-logo" style="margin-bottom:8px;">東軍 勝利！</h1>
+    <p id="result-reason" style="font-size:16px; color:#ffd700; margin-bottom:16px;"></p>
+
+    <div style="background:rgba(0,0,0,0.55); border:1px solid #d4af37; border-radius:10px; padding:16px; text-align:left; margin-bottom:18px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span style="color:#ffd700; font-weight:bold;">📜 勝利画面のひとこと歴史豆知識</span>
+        <button class="small-btn" id="next-trivia-btn">別の豆知識を見る</button>
+      </div>
+      <p id="trivia-text" style="font-size:14px; line-height:1.6; color:#f0e6d2;"></p>
+    </div>
+
+    <button class="btn" id="back-to-title-btn">ロビーへ戻る</button>
+  </div>
+</div>
+
+<script>
+// =========================================================
+// 1. 歴史キャラクター＆クイズ・豆知識データ定義
+// =========================================================
+const CHARACTERS = {
+  nobunaga: {
+    id: 'nobunaga',
+    name: '織田信長',
+    era: '戦国時代',
+    weaponName: '火縄銃（種子島）',
+    skillName: '三段撃ち',
+    hp: 100,
+    speed: 10.5,
+    atkCooldown: 0.55,
+    skillCooldown: 6.5,
+    desc: '南蛮胴具足に深紅のマントを纏う戦国の風雲児。中〜遠距離から火縄銃で敵を狙撃する。',
+    skillDesc: '必殺技「三段撃ち」：高威力の銃弾を素早く3連射し、前方の敵を圧倒する（長篠の戦い）。',
+    bio: '尾張国（現在の愛知県）出身。桶狭間の戦いで今川義元を破り、楽市楽座や鉄砲の組織的運用など革新的な政策で天下統一の礎を築いた。「人間五十年、下天の内をくらぶれば、夢幻の如くなり」と幸若舞『敦盛』を好んだことでも有名。',
+    histNote: '【史実と最新研究】長篠の戦いにおける「3000挺の三段撃ち」は江戸時代の『甫庵信長記』などで広まりましたが、近年の歴史研究では「多数の鉄砲を馬防柵の後ろから統制して一斉・持続射撃させた戦術」が実態に近かったと考えられています。'
+  },
+  tomoe: {
+    id: 'tomoe',
+    name: '巴御前',
+    era: '平安末期（源平合戦）',
+    weaponName: '大薙刀（なぎなた）',
+    skillName: 'なぎ払い',
+    hp: 125,
+    speed: 11.4,
+    atkCooldown: 0.48,
+    skillCooldown: 5.5,
+    desc: '朱塗りの大鎧を纏う源平合戦の女武者。高い体力と機動力で接近戦を制する。',
+    skillDesc: '必殺技「なぎ払い」：大薙刀を構えて360度大回転し、周囲の敵を一斉に斬り払って吹き飛ばす。',
+    bio: '信濃国の武将・木曾義仲とともに戦った平安時代末期の女武者。『平家物語』では「色白く髪長く、容顔まことに優れたり。強弓精兵、一人当千の兵者（つわもの）なり」と讃えられ、最期の粟津の戦いでも大剛の武者・恩田師重を討ち取る活躍を見せた。',
+    histNote: '【史実と伝承】薙刀（なぎなた）は平安時代後期から鎌倉時代にかけて発達した長柄武器で、反りのある長い刃を活かして騎馬の足や複数の敵を払うのに威力を発揮しました。'
+  },
+  yoichi: {
+    id: 'yoichi',
+    name: '那須与一',
+    era: '平安末期（源平合戦）',
+    weaponName: '和弓（大弓）',
+    skillName: '扇の的',
+    hp: 95,
+    speed: 11.0,
+    atkCooldown: 0.6,
+    skillCooldown: 6.0,
+    desc: '屋島の戦いで平家の扇を射抜いた弓の名手。精密な遠距離射撃が得意。',
+    skillDesc: '必殺技「扇の的」：精神を集中し、黄金の軌跡を描いて一直線に複数の敵を貫く超高速の強矢を放つ。',
+    bio: '下野国（現在の栃木県）那須氏出身の若武者。1185年の「屋島の戦い」において、平家軍が小舟の上に掲げた扇の的を、波立つ海中に馬を乗り入れて見事一矢で射抜き、源平両軍から大喝采を浴びた。',
+    histNote: '【史実の武器特徴】日本の「和弓」は世界的に珍しい上下非対称の構造（握り位置が中央より下にある「本弭・末弭」構造）をしており、馬上や膝をついた姿勢からでも2メートルを超える長弓を自在に扱えるよう工夫されていました。'
+  }
+};
+
+const TRIVIA_LIST = [
+  '【信長の三段撃ちの真相】長篠の戦いの「3000挺を1000挺ずつ交代で撃つ三段撃ち」は後世の軍記物で有名になりましたが、実際には1000〜1500挺ほどの鉄砲を5人の奉行が統率して一斉射撃させたのが実像に近いとする説が有力です。',
+  '【日本の和弓の秘密】那須与一が使った日本の大弓は、握り（弓把）が中央より下（下から約3分の1）にあります。これにより、2メートル以上の長さがあっても馬上や低い姿勢で地面に当たらず射ることができました。',
+  '【長篠の戦いと連吾川】長篠の合戦場の中央を流れる「連吾川（れんごがわ）」は、川幅は狭いものの両岸が切り立った崖のような窪地になっており、天然の堀として馬防柵以上の防御力を発揮しました。',
+  '【巴御前の大薙刀】『平家物語』によると、巴御前は強弓と長刀（なぎなた）の名手であり、荒馬を乗りこなし、いかなる強敵にもひるまず先陣を切ったと伝えられています。'
+];
+
+// =========================================================
+// 2. 多関節3D武将モデル生成（肩・肘・手・股関節・膝・足首・揺れもの）
+// =========================================================
+function createCharacterRig(charId, team) {
+  const root = new THREE.Group();
+  const teamColor = team === 'east' ? 0x2980b9 : 0xc0392b;
+  const skinMat = new THREE.MeshStandardMaterial({ color: 0xf4c7a1, roughness: 0.65 });
+  const darkMetal = new THREE.MeshStandardMaterial({ color: 0x22252a, metalness: 0.7, roughness: 0.35 });
+  const goldMat = new THREE.MeshStandardMaterial({ color: 0xe5b822, metalness: 0.8, roughness: 0.25 });
+  const crimsonMat = new THREE.MeshStandardMaterial({ color: 0xa81c1c, roughness: 0.55 });
+  const greenMat = new THREE.MeshStandardMaterial({ color: 0x245c36, roughness: 0.6 });
+  const woodMat = new THREE.MeshStandardMaterial({ color: 0x6e4726, roughness: 0.75 });
+  const hairMat = new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.8 });
+
+  // 足元の陣営リング
+  const ringGeo = new THREE.RingGeometry(0.62, 0.78, 24);
+  const ringMat = new THREE.MeshBasicMaterial({ color: teamColor, side: THREE.DoubleSide });
+  const teamRing = new THREE.Mesh(ringGeo, ringMat);
+  teamRing.rotation.x = -Math.PI / 2;
+  teamRing.position.y = 0.03;
+  root.add(teamRing);
+
+  // 骨盤 (Pelvis) - 全身の基点
+  const pelvis = new THREE.Group();
+  pelvis.position.y = 0.95;
+  root.add(pelvis);
+
+  const pelvisMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(0.46, 0.22, 0.30),
+    charId === 'nobunaga' ? darkMetal : (charId === 'tomoe' ? crimsonMat : greenMat)
+  );
+  pelvis.add(pelvisMesh);
+
+  // 腰の草摺（くさずり・揺れもの）
+  const kusazuriGroup = new THREE.Group();
+  pelvis.add(kusazuriGroup);
+  for (let i = 0; i < 4; i++) {
+    const flap = new THREE.Mesh(
+      new THREE.BoxGeometry(i < 2 ? 0.44 : 0.28, 0.28, 0.05),
+      charId === 'nobunaga' ? darkMetal : (charId === 'tomoe' ? crimsonMat : goldMat)
+    );
+    if (i === 0) { flap.position.set(0, -0.16, 0.17); flap.rotation.x = -0.18; }
+    if (i === 1) { flap.position.set(0, -0.16, -0.17); flap.rotation.x = 0.18; }
+    if (i === 2) { flap.position.set(-0.25, -0.16, 0); flap.rotation.z = 0.2; flap.rotation.y = Math.PI/2; }
+    if (i === 3) { flap.position.set(0.25, -0.16, 0); flap.rotation.z = -0.2; flap.rotation.y = Math.PI/2; }
+    kusazuriGroup.add(flap);
+  }
+
+  // 胸郭・胴体 (Torso)
+  const torso = new THREE.Group();
+  torso.position.y = 0.12;
+  pelvis.add(torso);
+
+  const chestMat = charId === 'nobunaga' ? darkMetal : (charId === 'tomoe' ? crimsonMat : greenMat);
+  const chestMesh = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.58, 0.34), chestMat);
+  chestMesh.position.y = 0.29;
+  chestMesh.castShadow = true;
+  torso.add(chestMesh);
+
+  // 胸の金装飾・陣営差し色
+  const chestPlate = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.32, 0.36), goldMat);
+  chestPlate.position.set(0, 0.33, 0);
+  torso.add(chestPlate);
+
+  const teamSash = new THREE.Mesh(
+    new THREE.BoxGeometry(0.54, 0.12, 0.37),
+    new THREE.MeshStandardMaterial({ color: teamColor, roughness: 0.5 })
+  );
+  teamSash.position.set(0, 0.12, 0);
+  torso.add(teamSash);
+
+  // 首・頭部 (Neck / Head)
+  const neck = new THREE.Group();
+  neck.position.y = 0.62;
+  torso.add(neck);
+
+  const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.40, 0.38), skinMat);
+  headMesh.position.y = 0.22;
+  headMesh.castShadow = true;
+  neck.add(headMesh);
+
+  // 目・眉・顔立ち
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+  const leftEye = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.02), eyeMat);
+  leftEye.position.set(0.09, 0.24, 0.195);
+  const rightEye = leftEye.clone();
+  rightEye.position.x = -0.09;
+  neck.add(leftEye, rightEye);
+
+  // キャラ別頭部装飾・揺れもの
+  let capePivot = null;
+  let hairPivot = null;
+
+  if (charId === 'nobunaga') {
+    // ちょび髭
+    const mustache = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.03, 0.03), hairMat);
+    mustache.position.set(0, 0.14, 0.195);
+    neck.add(mustache);
+
+    // 南蛮兜と金の鍬形（くわがた）
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.6), darkMetal);
+    helmet.position.y = 0.28;
+    neck.add(helmet);
+
+    const crestLeft = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.38, 6), goldMat);
+    crestLeft.position.set(0.12, 0.52, 0.16);
+    crestLeft.rotation.z = -0.35;
+    const crestRight = crestLeft.clone();
+    crestRight.position.x = -0.12;
+    crestRight.rotation.z = 0.35;
+    neck.add(crestLeft, crestRight);
+
+    // 深紅の西洋マント（揺れもの）
+    capePivot = new THREE.Group();
+    capePivot.position.set(0, 0.55, -0.18);
+    torso.add(capePivot);
+    const capeMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.68, 0.95, 0.04),
+      new THREE.MeshStandardMaterial({ color: 0x9e1414, roughness: 0.6 })
+    );
+    capeMesh.position.set(0, -0.45, -0.04);
+    capePivot.add(capeMesh);
+  } else if (charId === 'tomoe') {
+    // 鉢巻と長い黒髪ポニーテール（揺れもの）
+    const hairTop = new THREE.Mesh(new THREE.BoxGeometry(0.41, 0.18, 0.41), hairMat);
+    hairTop.position.set(0, 0.36, -0.01);
+    neck.add(hairTop);
+
+    const hachimaki = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.42), goldMat);
+    hachimaki.position.set(0, 0.30, 0);
+    neck.add(hachimaki);
+
+    hairPivot = new THREE.Group();
+    hairPivot.position.set(0, 0.28, -0.20);
+    neck.add(hairPivot);
+    const ponytail = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.65, 0.12), hairMat);
+    ponytail.position.set(0, -0.28, -0.04);
+    hairPivot.add(ponytail);
+  } else if (charId === 'yoichi') {
+    // 侍烏帽子（えぼし）
+    const eboshi = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.21, 0.42, 8), darkMetal);
+    eboshi.position.set(0, 0.52, 0);
+    neck.add(eboshi);
+
+    // 背中の箙（えびら・矢筒）
+    const quiver = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.52, 0.14), woodMat);
+    quiver.position.set(0.12, 0.35, -0.24);
+    quiver.rotation.z = -0.2;
+    torso.add(quiver);
+    for (let a = -1; a <= 1; a++) {
+      const feather = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.28), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      feather.position.set(0.12 + a * 0.04, 0.68, -0.24);
+      feather.rotation.z = -0.2;
+      torso.add(feather);
+    }
+  }
+
+  // 両腕（肩 Shoulder -> 肘 Elbow -> 手首 Hand）
+  function createArm(isRight) {
+    const side = isRight ? -1 : 1;
+    const shoulder = new THREE.Group();
+    shoulder.rotation.order = 'YXZ'; // x=前に上げる / y=左右に振る / z=横に上げる
+    shoulder.position.set(side * 0.34, 0.52, 0);
+    torso.add(shoulder);
+
+    // 大袖（肩鎧）
+    const sode = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.24, 0.26),
+      charId === 'tomoe' ? crimsonMat : (charId === 'nobunaga' ? darkMetal : goldMat)
+    );
+    sode.position.set(side * 0.05, -0.06, 0);
+    shoulder.add(sode);
+
+    // 上腕
+    const upperArm = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.30, 0.14), chestMat);
+    upperArm.position.y = -0.15;
+    shoulder.add(upperArm);
+
+    // 肘関節
+    const elbow = new THREE.Group();
+    elbow.position.y = -0.30;
+    shoulder.add(elbow);
+
+    // 前腕（籠手）
+    const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.28, 0.13), darkMetal);
+    forearm.position.y = -0.14;
+    elbow.add(forearm);
+
+    // 手首
+    const hand = new THREE.Group();
+    hand.position.y = -0.28;
+    elbow.add(hand);
+
+    const handMesh = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.11), skinMat);
+    hand.add(handMesh);
+
+    return { shoulder, elbow, hand };
+  }
+
+  const rightArm = createArm(true);
+  const leftArm = createArm(false);
+
+  // 両脚（股関節 Hip -> 膝 Knee -> 足首 Ankle）
+  function createLeg(isRight) {
+    const side = isRight ? -1 : 1;
+    const hip = new THREE.Group();
+    hip.position.set(side * 0.14, -0.06, 0);
+    pelvis.add(hip);
+
+    // 太もも
+    const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.42, 0.17), darkMetal);
+    thigh.position.y = -0.21;
+    hip.add(thigh);
+
+    // 膝関節
+    const knee = new THREE.Group();
+    knee.position.y = -0.42;
+    hip.add(knee);
+
+    // すね（臑当）
+    const shin = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.40, 0.15), goldMat);
+    shin.position.y = -0.20;
+    knee.add(shin);
+
+    // 足首・草鞋
+    const ankle = new THREE.Group();
+    ankle.position.y = -0.40;
+    knee.add(ankle);
+
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.09, 0.26), woodMat);
+    foot.position.set(0, -0.04, 0.05);
+    ankle.add(foot);
+
+    return { hip, knee, ankle };
+  }
+
+  const rightLeg = createLeg(true);
+  const leftLeg = createLeg(false);
+
+  // 武器モデルの作成と装着
+  const weaponGroup = new THREE.Group();
+  let bowRig = null;
+  let muzzlePoint = new THREE.Object3D();
+
+  if (charId === 'nobunaga') {
+    // 火縄銃（銃床＋長い八角銃身＋火縄）
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.55), woodMat);
+    stock.position.set(0, 0, 0.20);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.038, 1.15, 8), darkMetal);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.05, 0.62);
+    const goldBand = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.08, 8), goldMat);
+    goldBand.rotation.x = Math.PI / 2;
+    goldBand.position.set(0, 0.05, 0.95);
+    muzzlePoint.position.set(0, 0.05, 1.22);
+    weaponGroup.add(stock, barrel, goldBand, muzzlePoint);
+    rightArm.hand.add(weaponGroup);
+  } else if (charId === 'tomoe') {
+    // 大薙刀（長い柄＋反りのある白銀の刃）
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.032, 1.95, 8), woodMat);
+    pole.rotation.x = Math.PI / 2;
+    pole.position.set(0, 0, 0.35);
+    const tsuba = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.04, 12), goldMat);
+    tsuba.rotation.x = Math.PI / 2;
+    tsuba.position.set(0, 0, 1.32);
+    const blade = new THREE.Mesh(
+      new THREE.BoxGeometry(0.03, 0.14, 0.68),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.9, roughness: 0.15 })
+    );
+    blade.position.set(0, 0.03, 1.66);
+    blade.rotation.x = -0.12;
+    weaponGroup.add(pole, tsuba, blade);
+    rightArm.hand.add(weaponGroup);
+  } else if (charId === 'yoichi') {
+    // 和弓（上下非対称の大弓＋弦）- 左手に持つ
+    const bowLower = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.75, 8), crimsonMat);
+    bowLower.position.set(0, -0.35, 0.05);
+    bowLower.rotation.x = 0.15;
+    const bowUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.02, 1.35, 8), crimsonMat);
+    bowUpper.position.set(0, 0.65, 0.08);
+    bowUpper.rotation.x = -0.14;
+    // 弦は上下2本に分け、引くと「く」の字にしなる
+    const strMat = new THREE.MeshBasicMaterial({ color: 0xeeeeee });
+    const strGeo = new THREE.CylinderGeometry(0.007, 0.007, 1, 5);
+    const strTop = new THREE.Mesh(strGeo, strMat);
+    const strBot = new THREE.Mesh(strGeo, strMat);
+    // つがえた矢
+    const nockArrow = new THREE.Group();
+    const shaftMat = new THREE.MeshBasicMaterial({ color: 0x8a6a3a });
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.95, 5), shaftMat);
+    shaft.rotation.x = Math.PI / 2; shaft.position.z = 0.475;
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.1, 5), darkMetal);
+    head.rotation.x = Math.PI / 2; head.position.z = 0.99;
+    const fletch = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.07, 0.14), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    fletch.position.z = 0.08;
+    nockArrow.add(shaft, head, fletch);
+    nockArrow.visible = false;
+    muzzlePoint.position.set(0, 0.28, 0.4);
+    weaponGroup.add(bowLower, bowUpper, strTop, strBot, nockArrow, muzzlePoint);
+    bowRig = { strTop, strBot, nockArrow, shaftMat };
+    leftArm.hand.add(weaponGroup);
+  }
+
+  // 被弾フラッシュ用（このリグ専用のマテリアル）
+  const mats = [];
+  root.traverse(o => { if (o.material && o.material.emissive && !mats.includes(o.material)) mats.push(o.material); });
+
+  return {
+    root, pelvis, torso, neck,
+    rightArm, leftArm, rightLeg, leftLeg,
+    kusazuriGroup, capePivot, hairPivot,
+    weaponGroup, muzzlePoint, bowRig, mats
+  };
+}
+
+// =========================================================
+// 3. 多関節手続き型アニメーション更新関数
+// =========================================================
+const clamp01 = t => t < 0 ? 0 : (t > 1 ? 1 : t);
+const smooth = t => { t = clamp01(t); return t * t * (3 - 2 * t); };
+const snap = t => { t = clamp01(t); return 1 - Math.pow(1 - t, 3); }; // 振り抜きは速く
+const mix = (a, b, t) => a + (b - a) * t;
+function poseMix(A, B, t) { const o = {}; for (const k in A) o[k] = mix(A[k], B[k], t); return o; }
+function applyArm(arm, P) {
+  arm.shoulder.rotation.set(P.sx, P.sy, P.sz);
+  arm.elbow.rotation.set(P.e, 0, 0);
+  arm.hand.rotation.set(P.hx, 0, 0);
+}
+const _up = new THREE.Vector3(0, 1, 0);
+const _dir = new THREE.Vector3();
+function placeSegment(m, ax, ay, az, bx, by, bz) {
+  const dx = bx - ax, dy = by - ay, dz = bz - az, len = Math.hypot(dx, dy, dz);
+  m.position.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
+  m.scale.set(1, len, 1);
+  m.quaternion.setFromUnitVectors(_up, _dir.set(dx / len, dy / len, dz / len));
+}
+
+// 構え・動作のキーポーズ（腕：sx=前に上げる, sy=左右, sz=横に上げる, e=肘, hx=手首）
+const POSE = {
+  // 信長：火縄銃
+  gunLowR: { sx: -0.5, sy: 0.35, sz: 0, e: -0.7, hx: 1.45 },   // 銃口を少し下げた待機
+  gunLowL: { sx: -0.6, sy: -0.45, sz: 0, e: -0.6, hx: 0 },
+  gunAimR: { sx: -1.05, sy: 0.3, sz: 0, e: -0.55, hx: 1.6 },   // 頬付けして水平に構える
+  gunAimL: { sx: -1.3, sy: -0.45, sz: 0, e: -0.25, hx: 0 },    // 左手で銃身を支える
+  // 巴御前：なぎなた
+  ngIdleR: { sx: -0.75, sy: -0.15, sz: 0, e: -0.45, hx: 0.75 }, // 中段の構え（刃先やや上）
+  ngIdleL: { sx: -0.95, sy: -0.55, sz: 0, e: -0.35, hx: 0 },
+  ngWindR: { sx: -1.15, sy: -0.75, sz: 0, e: -0.55, hx: 0.55 }, // 右後ろへ振りかぶる
+  ngWindL: { sx: -1.2, sy: -0.95, sz: 0, e: -0.4, hx: 0 },
+  ngHitR: { sx: -0.95, sy: 0.55, sz: 0, e: -0.15, hx: 1.1 },    // 水平に振り抜く
+  ngHitL: { sx: -1.0, sy: 0.25, sz: 0, e: -0.2, hx: 0 },
+  ngSpinR: { sx: -1.35, sy: 0, sz: 0, e: -0.1, hx: 1.45 },      // 回転なぎ払い
+  ngSpinL: { sx: -1.25, sy: -0.4, sz: 0, e: -0.15, hx: 0 },
+  // 那須与一：和弓
+  bowRestL: { sx: -0.45, sy: 0.15, sz: 0, e: -0.2, hx: 0.45 },
+  bowRestR: { sx: -0.15, sy: 0, sz: 0, e: -0.3, hx: 0 },
+  bowRaiseL: { sx: -1.5, sy: 0.5, sz: 0, e: 0, hx: 1.5 },        // 弓手（左）を的へ押し出す
+  bowNockR: { sx: -1.35, sy: 0.6, sz: 0, e: -0.4, hx: 0 },       // 矢をつがえる
+  bowFullR: { sx: 0, sy: -1.4, sz: -1.45, e: 2.6, hx: 0 },       // 肘を後ろに張り、手は頬の横まで引き分ける
+  bowZanR: { sx: 0, sy: -0.9, sz: -1.45, e: 0.3, hx: 0 }         // 残心（離れの後、腕が後ろへ開く）
+};
+
+// f：武将（またはその見た目だけのデータ）
+function updateCharacterAnimation(rig, f, dt) {
+  const charId = f.charId;
+  const phase = f.animTime * 10.5;
+  const runWeight = Math.min(1, f.moveSpeedRatio);
+
+  // 1. 脚と骨盤
+  if (!f.isGrounded) {
+    rig.pelvis.position.y = 0.98;
+    rig.pelvis.rotation.y = 0;
+    rig.rightLeg.hip.rotation.x = -0.55;
+    rig.rightLeg.knee.rotation.x = 0.85;
+    rig.leftLeg.hip.rotation.x = 0.25;
+    rig.leftLeg.knee.rotation.x = 0.45;
+  } else if (runWeight > 0.05) {
+    const bounce = Math.abs(Math.sin(phase)) * 0.09 * runWeight;
+    const crouch = f.landingTimer > 0 ? Math.sin(f.landingTimer * Math.PI / 0.22) * 0.14 : 0;
+    rig.pelvis.position.y = 0.95 + bounce - crouch;
+    rig.pelvis.rotation.y = Math.sin(phase) * 0.16 * runWeight;
+    rig.rightLeg.hip.rotation.x = Math.sin(phase) * 0.78 * runWeight;
+    rig.leftLeg.hip.rotation.x = Math.sin(phase + Math.PI) * 0.78 * runWeight;
+    rig.rightLeg.knee.rotation.x = Math.max(0.08, Math.sin(phase - 0.65) * 1.05 * runWeight);
+    rig.leftLeg.knee.rotation.x = Math.max(0.08, Math.sin(phase + Math.PI - 0.65) * 1.05 * runWeight);
+    rig.rightLeg.ankle.rotation.x = -Math.sin(phase) * 0.32 * runWeight;
+    rig.leftLeg.ankle.rotation.x = -Math.sin(phase + Math.PI) * 0.32 * runWeight;
+  } else {
+    const breathe = Math.sin(f.animTime * 2.6) * 0.02;
+    const crouch = f.landingTimer > 0 ? Math.sin(f.landingTimer * Math.PI / 0.22) * 0.15 : 0;
+    rig.pelvis.position.y = 0.95 + breathe - crouch;
+    rig.pelvis.rotation.y = 0;
+    rig.rightLeg.hip.rotation.x = -crouch * 1.2;
+    rig.leftLeg.hip.rotation.x = -crouch * 1.2;
+    rig.rightLeg.knee.rotation.x = crouch * 2.2;
+    rig.leftLeg.knee.rotation.x = crouch * 2.2;
+    rig.rightLeg.ankle.rotation.x = 0;
+    rig.leftLeg.ankle.rotation.x = 0;
+  }
+
+  // 2. 体幹の基本
+  let torsoX = 0.12 * runWeight;
+  let torsoY = -rig.pelvis.rotation.y * 0.7;
+  let lunge = 0; // 踏み込みで腰を落とす量
+  const swingArm = Math.sin(phase) * 0.22 * runWeight;
+  const aim = f.aimBlend;
+  let R, L;
+
+  if (charId === 'nobunaga') {
+    R = poseMix(POSE.gunLowR, POSE.gunAimR, aim);
+    L = poseMix(POSE.gunLowL, POSE.gunAimL, aim);
+    R.sx += swingArm * 0.4 * (1 - aim);
+    // 発砲の反動：銃口が跳ね上がり、上体がのけぞる
+    const r = f.recoil;
+    R.sx += r * 0.25; R.hx -= r * 0.45; L.sx += r * 0.2; L.e += r * 0.15;
+    torsoY = mix(torsoY, -0.28, aim);
+    torsoX = mix(torsoX, 0.06, aim) - r * 0.22;
+    rig.neck.rotation.x = aim * 0.14 - r * 0.1; // 照準をのぞきこむ
+  } else if (charId === 'tomoe') {
+    R = { ...POSE.ngIdleR }; L = { ...POSE.ngIdleL };
+    R.sx += swingArm * 0.5; L.sx -= swingArm * 0.3;
+    if (f.skillAnimTimer > 0) {
+      // 必殺技：薙刀を水平に伸ばして2回転
+      const p = 1 - f.skillAnimTimer / f.skillDur;
+      const k = smooth(p / 0.15) * (1 - smooth((p - 0.85) / 0.15));
+      R = poseMix(R, POSE.ngSpinR, k); L = poseMix(L, POSE.ngSpinL, k);
+      torsoY = snap(p) * Math.PI * 4;
+      torsoX = 0.25 * k; lunge = 0.16 * k;
+    } else if (f.attackAnimTimer > 0) {
+      // 通常攻撃：振りかぶり → 一気に横へなぎ払う → 構えに戻る
+      const p = 1 - f.attackAnimTimer / f.attackDur;
+      let ty;
+      if (p < 0.35) {
+        const k = smooth(p / 0.35);
+        R = poseMix(R, POSE.ngWindR, k); L = poseMix(L, POSE.ngWindL, k);
+        ty = mix(0, -1.0, k); lunge = 0.04 * k;
+      } else if (p < 0.58) {
+        const k = snap((p - 0.35) / 0.23);
+        R = poseMix(POSE.ngWindR, POSE.ngHitR, k); L = poseMix(POSE.ngWindL, POSE.ngHitL, k);
+        ty = mix(-1.0, 1.15, k); lunge = mix(0.04, 0.18, k);
+        torsoX = 0.28 * k;
+      } else {
+        const k = smooth((p - 0.58) / 0.42);
+        R = poseMix(POSE.ngHitR, POSE.ngIdleR, k); L = poseMix(POSE.ngHitL, POSE.ngIdleL, k);
+        ty = mix(1.15, 0, k); lunge = 0.18 * (1 - k); torsoX = 0.28 * (1 - k);
+      }
+      torsoY = ty;
+    }
+  } else if (charId === 'yoichi') {
+    const active = f.attackAnimTimer > 0 || f.skillAnimTimer > 0;
+    const stance = Math.max(aim, active ? 1 : 0);
+    L = poseMix(POSE.bowRestL, POSE.bowRaiseL, stance);
+    R = poseMix(POSE.bowRestR, POSE.bowNockR, aim * 0.7);
+    if (!active) { R.sx += swingArm * 0.5; L.sx -= swingArm * 0.2 * (1 - stance); }
+    let draw = 0, nocked = false;
+    if (active) {
+      const isSkill = f.skillAnimTimer > 0;
+      const p = isSkill ? 1 - f.skillAnimTimer / f.skillDur : 1 - f.attackAnimTimer / f.attackDur;
+      const t1 = isSkill ? 0.2 : 0.25;   // つがえ終わり
+      const rel = isSkill ? 0.7 : 0.6;   // 離れ（矢を放つ）
+      if (p < t1) {
+        R = poseMix(R, POSE.bowNockR, smooth(p / t1));
+        nocked = p > t1 * 0.5;
+      } else if (p < rel) {
+        const k = smooth((p - t1) / (rel - t1));
+        R = poseMix(POSE.bowNockR, POSE.bowFullR, k);
+        draw = k; nocked = true;
+        if (isSkill && k > 0.95) R.e += Math.sin(f.animTime * 60) * 0.02; // 満を持す震え
+      } else {
+        const k = snap((p - rel) / 0.12);
+        const back = smooth((p - 0.82) / 0.18);
+        R = poseMix(poseMix(POSE.bowFullR, POSE.bowZanR, k), POSE.bowNockR, back);
+      }
+      if (rig.bowRig) rig.bowRig.shaftMat.color.setHex(isSkill ? 0xffd700 : 0x8a6a3a);
+    }
+    torsoY = mix(torsoY, -0.5, stance);   // 的に対して半身になる
+    torsoX = mix(torsoX, 0.02, stance);
+    rig.neck.rotation.x = 0;
+    if (rig.bowRig) {
+      const nz = -0.02 - draw * 0.55;
+      placeSegment(rig.bowRig.strTop, 0, 1.319, -0.014, 0, 0.28, nz);
+      placeSegment(rig.bowRig.strBot, 0, 0.28, nz, 0, -0.721, -0.006);
+      rig.bowRig.nockArrow.visible = nocked;
+      rig.bowRig.nockArrow.position.set(0, 0.28, nz);
+    }
+  }
+
+  // 3. 被弾ののけぞり
+  torsoX -= f.flinch * 0.4;
+  rig.pelvis.position.y -= lunge;
+
+  rig.torso.rotation.x = torsoX;
+  rig.torso.rotation.y = torsoY;
+  rig.neck.rotation.y = charId === 'tomoe' && f.skillAnimTimer > 0 ? 0 : -torsoY * 0.85;
+  if (charId === 'tomoe') rig.neck.rotation.x = -f.flinch * 0.3;
+  else rig.neck.rotation.x -= f.flinch * 0.3;
+  applyArm(rig.rightArm, R);
+  applyArm(rig.leftArm, L);
+
+  // 4. 揺れもの
+  if (rig.capePivot) {
+    rig.capePivot.rotation.x = 0.18 + runWeight * 0.55 + Math.sin(f.animTime * 9) * 0.08 * (0.3 + runWeight) + f.recoil * 0.15;
+  }
+  if (rig.hairPivot) {
+    rig.hairPivot.rotation.x = 0.15 + runWeight * 0.48 + Math.sin(f.animTime * 10) * 0.09 * (0.3 + runWeight);
+    rig.hairPivot.rotation.z = Math.cos(f.animTime * 8) * 0.08 * runWeight + (f.attackAnimTimer > 0 ? -torsoY * 0.25 : 0);
+  }
+
+  // 5. 被弾した瞬間に体が赤く光る
+  const fl = clamp01(f.hitFlash / 0.18);
+  if (fl > 0 || rig._lit) {
+    rig.mats.forEach(m => m.emissive.setRGB(fl * 0.9, fl * 0.12, fl * 0.08));
+    rig._lit = fl > 0;
+  }
+}
+
+// =========================================================
+// 4. メイン3Dゲームエンジン（Three.js・長篠の合戦場・滑らかTPSカメラ）
+// =========================================================
+const canvas = document.getElementById('game-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87b8de);
+scene.fog = new THREE.FogExp2(0x87b8de, 0.0085);
+
+const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 300);
+
+// ライティング
+const hemiLight = new THREE.HemisphereLight(0xfff6e5, 0x49613b, 0.75);
+scene.add(hemiLight);
+
+const dirLight = new THREE.DirectionalLight(0xfff0d0, 0.95);
+dirLight.position.set(35, 55, 25);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(1024, 1024);
+dirLight.shadow.camera.near = 5;
+dirLight.shadow.camera.far = 140;
+const d = 55;
+dirLight.shadow.camera.left = -d;
+dirLight.shadow.camera.right = d;
+dirLight.shadow.camera.top = d;
+dirLight.shadow.camera.bottom = -d;
+scene.add(dirLight);
+
+// ステージ障害物・旗オブジェクト配列
+const obstacles = []; // { x, z, halfW, halfD, height }
+let eastBaseFlagMesh = null;
+let westBaseFlagMesh = null;
+
+function buildNagashinoStage() {
+  // 地面（草原）
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(140, 140),
+    new THREE.MeshStandardMaterial({ color: 0x4c7c3c, roughness: 0.9 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // 中央の「連吾川」（Z = -5 〜 +5）
+  const river = new THREE.Mesh(
+    new THREE.PlaneGeometry(140, 9),
+    new THREE.MeshStandardMaterial({ color: 0x2980b9, roughness: 0.25, metalness: 0.2 })
+  );
+  river.rotation.x = -Math.PI / 2;
+  river.position.y = 0.04;
+  scene.add(river);
+
+  // 連吾川に架かる3つの木橋（X = -22, 0, +22）
+  const bridgeMat = new THREE.MeshStandardMaterial({ color: 0x7c5230, roughness: 0.8 });
+  [-22, 0, 22].forEach(bx => {
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(7, 0.35, 10.5), bridgeMat);
+    bridge.position.set(bx, 0.15, 0);
+    bridge.receiveShadow = true;
+    scene.add(bridge);
+  });
+
+  // 長篠の「馬防柵（ばぼうさく）」を作る関数
+  const woodLogMat = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.85 });
+  function createPalisade(x, z) {
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+    // 横木2本＋縦杭5本
+    for (let i = -2; i <= 2; i++) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 2.2, 6), woodLogMat);
+      post.position.set(i * 1.1, 1.05, 0);
+      post.rotation.x = (i % 2 === 0 ? 0.12 : -0.12);
+      post.castShadow = true;
+      group.add(post);
+    }
+    const bar1 = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 5.2, 6), woodLogMat);
+    bar1.rotation.z = Math.PI / 2;
+    bar1.position.set(0, 0.75, 0);
+    const bar2 = bar1.clone();
+    bar2.position.y = 1.45;
+    group.add(bar1, bar2);
+    scene.add(group);
+    obstacles.push({ x, z, halfW: 2.7, halfD: 0.55, height: 2.2 });
+  }
+
+  // 東軍側（Z < 0）と西軍側（Z > 0）に馬防柵を配置
+  [-28, -13, 13, 28].forEach(px => {
+    createPalisade(px, -11);
+    createPalisade(px, 11);
+  });
+  [-18, 0, 18].forEach(px => {
+    createPalisade(px, -23);
+    createPalisade(px, 23);
+  });
+
+  // 本陣の大旗（東軍 Z = -42, 西軍 Z = +42）
+  function createMainCamp(zPos, isEast) {
+    const color = isEast ? 0x2980b9 : 0xc0392b;
+    const campGroup = new THREE.Group();
+    campGroup.position.set(0, 0, zPos);
+
+    // 占領サークル
+    const circle = new THREE.Mesh(
+      new THREE.RingGeometry(4.6, 5.0, 36),
+      new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })
+    );
+    circle.rotation.x = -Math.PI / 2;
+    circle.position.y = 0.05;
+    campGroup.add(circle);
+
+    // 旗竿
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 8.5, 10), woodLogMat);
+    pole.position.y = 4.25;
+    campGroup.add(pole);
+
+    // 旗布
+    const banner = new THREE.Mesh(
+      new THREE.BoxGeometry(2.6, 3.4, 0.08),
+      new THREE.MeshStandardMaterial({ color, roughness: 0.5 })
+    );
+    banner.position.set(1.35, 6.2, 0);
+    campGroup.add(banner);
+
+    scene.add(campGroup);
+    return banner;
+  }
+
+  eastBaseFlagMesh = createMainCamp(-42, true);
+  westBaseFlagMesh = createMainCamp(42, false);
+}
+buildNagashinoStage();
+
+// =========================================================
+// 5. 滑らかなTPSカメラ制御（指数減衰補間・スプリング追従・障害物回避）
+// =========================================================
+const camConfig = {
+  mode: 'tps',
+  sensitivity: 1.0,
+  smoothSpeed: 14.0,
+  targetYaw: 0,
+  targetPitch: 0.28,
+  currentYaw: 0,
+  currentPitch: 0.28,
+  currentDist: 6.2,
+  idealDist: 6.2,
+  currentPos: new THREE.Vector3(0, 4, -50),
+  currentLookAt: new THREE.Vector3(0, 2, -40),
+  currentFov: 62,
+  shakeTimer: 0
+};
+
+function updateSmoothTPSCamera(player, dt) {
+  if (!player) return;
+
+  // 1. 回転角の指数減衰補間（カクつきを完全に排除）
+  // マウスを止めたら視点もすぐ止まる（補間なし）
+  camConfig.currentYaw = camConfig.targetYaw;
+  camConfig.currentPitch = camConfig.targetPitch;
+
+  // 一人称：頭を隠し、目の位置から見る
+  const fps = camConfig.mode === 'fps';
+  player.rig.neck.visible = !fps;
+  if (player.rig.capePivot) player.rig.capePivot.visible = !fps;
+  if (fps) {
+    const sy = Math.sin(camConfig.currentYaw), cy = Math.cos(camConfig.currentYaw);
+    const cp = Math.cos(camConfig.currentPitch), sp = Math.sin(camConfig.currentPitch);
+    const eye = new THREE.Vector3(player.x + sy * 0.12, player.y + 1.85, player.z + cy * 0.12);
+    if (camConfig.shakeTimer > 0) {
+      camConfig.shakeTimer = Math.max(0, camConfig.shakeTimer - dt);
+      eye.x += (Math.random() - 0.5) * 0.06;
+      eye.y += (Math.random() - 0.5) * 0.06;
+    }
+    camera.position.copy(eye);
+    camera.lookAt(eye.x + sy * cp * 20, eye.y - sp * 20, eye.z + cy * cp * 20);
+    camConfig.currentPos.copy(eye);
+    const fpsFov = player.dashActiveTimer > 0 ? 80 : 72;
+    camConfig.currentFov += (fpsFov - camConfig.currentFov) * (1 - Math.exp(-8 * dt));
+    camera.fov = camConfig.currentFov;
+    camera.updateProjectionMatrix();
+    return;
+  }
+
+  // 2. 肩越しオフセット計算（フォートナイト風・右肩越し）
+  const shoulderRightOffset = 0.65;
+  const pivotHeight = 1.85;
+
+  const sinY = Math.sin(camConfig.currentYaw);
+  const cosY = Math.cos(camConfig.currentYaw);
+  const cosP = Math.cos(camConfig.currentPitch);
+  const sinP = Math.sin(camConfig.currentPitch);
+
+  // カメラの前方ベクトル
+  const forwardX = sinY * cosP;
+  const forwardY = -sinP;
+  const forwardZ = cosY * cosP;
+
+  // 右方向ベクトル
+  const rightX = -cosY;
+  const rightZ = sinY;
+
+  const pivotX = player.x + rightX * shoulderRightOffset;
+  const pivotY = player.y + pivotHeight;
+  const pivotZ = player.z + rightZ * shoulderRightOffset;
+
+  // 3. 馬防柵や外周壁との簡易カメラ衝突判定（壁際で滑らかに寄る）
+  let desiredDist = camConfig.idealDist;
+  const rawCamX = pivotX - forwardX * desiredDist;
+  const rawCamZ = pivotZ - forwardZ * desiredDist;
+  for (const obs of obstacles) {
+    if (Math.abs(rawCamX - obs.x) < obs.halfW + 0.6 && Math.abs(rawCamZ - obs.z) < obs.halfD + 0.6) {
+      desiredDist = 3.2;
+      break;
+    }
+  }
+  camConfig.currentDist += (desiredDist - camConfig.currentDist) * (1 - Math.exp(-12 * dt));
+
+  const idealCamPos = new THREE.Vector3(
+    pivotX - forwardX * camConfig.currentDist,
+    Math.max(0.7, pivotY - forwardY * camConfig.currentDist),
+    pivotZ - forwardZ * camConfig.currentDist
+  );
+
+  // 発砲・攻撃時の微細なカメラシェイク
+  if (camConfig.shakeTimer > 0) {
+    camConfig.shakeTimer = Math.max(0, camConfig.shakeTimer - dt);
+    idealCamPos.x += (Math.random() - 0.5) * 0.14;
+    idealCamPos.y += (Math.random() - 0.5) * 0.14;
+  }
+
+  const idealLookAt = new THREE.Vector3(
+    pivotX + forwardX * 18,
+    pivotY + forwardY * 18,
+    pivotZ + forwardZ * 18
+  );
+
+  // 4. カメラ座標と注視点のスプリング追従
+  camConfig.currentPos.copy(idealCamPos);
+  camConfig.currentLookAt.copy(idealLookAt);
+
+  camera.position.copy(camConfig.currentPos);
+  camera.lookAt(camConfig.currentLookAt);
+
+  // 5. 疾走・必殺技時のダイナミックFOV補間
+  const targetFov = player.dashActiveTimer > 0 ? 70 : 62;
+  camConfig.currentFov += (targetFov - camConfig.currentFov) * (1 - Math.exp(-8 * dt));
+  if (Math.abs(camera.fov - camConfig.currentFov) > 0.05) {
+    camera.fov = camConfig.currentFov;
+    camera.updateProjectionMatrix();
+  }
+}
+
+// =========================================================
+// 6. 試合進行・ファイター・飛び道具・エフェクト管理
+// =========================================================
+let selectedCharId = 'nobunaga';
+let gameActive = false;
+let matchTimer = 120;
+let eastKills = 0;
+let westKills = 0;
+let eastFlagProgress = 0; // 東軍が西軍本陣(Z=+42)を占領した割合
+let westFlagProgress = 0; // 西軍が東軍本陣(Z=-42)を占領した割合
+
+let fighters = [];
+let playerFighter = null;
+let projectiles = [];
+let effects = [];
+
+function createFighter(charId, team, isPlayer, startX, startZ, label) {
+  const spec = CHARACTERS[charId];
+  const rig = createCharacterRig(charId, team);
+  rig.root.position.set(startX, 0, startZ);
+  scene.add(rig.root);
+
+  const buffMult = 1.0;
+
+  const f = {
+    ...animFields(),
+    charId,
+    team,
+    isPlayer,
+    rig,
+    x: startX,
+    y: 0,
+    z: startZ,
+    vy: 0,
+    yaw: team === 'east' ? 0 : Math.PI,
+    maxHp: Math.round(spec.hp * buffMult),
+    hp: Math.round(spec.hp * buffMult),
+    baseSpeed: spec.speed * buffMult,
+    atkCooldownMax: spec.atkCooldown,
+    skillCooldownMax: spec.skillCooldown,
+    atkCd: 0,
+    skillCd: 0,
+    dashCd: 0,
+    dashActiveTimer: 0,
+    attackAnimTimer: 0,
+    skillAnimTimer: 0,
+    landingTimer: 0,
+    animTime: Math.random() * 10,
+    moveSpeedRatio: 0,
+    isGrounded: true,
+    respawnTimer: 0,
+  };
+  if (!isPlayer) {
+    // 頭上のHPバー
+    const bar = document.createElement('div');
+    bar.className = 'ov-bar';
+    const col = team === 'east' ? '#4fb3ff' : '#ff5a4a';
+    bar.innerHTML = `<span style="color:${col}"></span><i style="background:${col}; width:100%"></i>`;
+    bar.querySelector('span').textContent = label || spec.name;
+    document.getElementById('fx-layer').appendChild(bar);
+    f.bar = bar;
+    f.barFill = bar.querySelector('i');
+  }
+  return f;
+}
+
+// アニメ用のタイマー類（試合の武将と図鑑の見本で共通）
+function animFields() {
+  return {
+    attackAnimTimer: 0, attackDur: 0.5,
+    skillAnimTimer: 0, skillDur: 0.6,
+    aimTimer: 0, aimBlend: 0, recoil: 0, flinch: 0, hitFlash: 0,
+    landingTimer: 0, moveSpeedRatio: 0, isGrounded: true,
+    animTime: Math.random() * 10, queue: [], dummy: false,
+    atkCd: 0, skillCd: 0, dashCd: 0, dashActiveTimer: 0, respawnTimer: 0
+  };
+}
+
+function tickFighter(f, dt) {
+  f.atkCd = Math.max(0, f.atkCd - dt);
+  f.skillCd = Math.max(0, f.skillCd - dt);
+  f.dashCd = Math.max(0, f.dashCd - dt);
+  f.dashActiveTimer = Math.max(0, f.dashActiveTimer - dt);
+  f.attackAnimTimer = Math.max(0, f.attackAnimTimer - dt);
+  f.skillAnimTimer = Math.max(0, f.skillAnimTimer - dt);
+  f.landingTimer = Math.max(0, f.landingTimer - dt);
+  f.aimTimer = Math.max(0, f.aimTimer - dt);
+  const wantAim = (f.aimTimer > 0 || f.attackAnimTimer > 0 || f.skillAnimTimer > 0) ? 1 : 0;
+  f.aimBlend += (wantAim - f.aimBlend) * Math.min(1, dt * (wantAim ? 14 : 4));
+  f.recoil = Math.max(0, f.recoil - dt * 5);
+  f.flinch = Math.max(0, f.flinch - dt * 5);
+  f.hitFlash = Math.max(0, f.hitFlash - dt);
+  // 予約した動作（発砲・斬撃・離れのタイミング）
+  for (let i = 0; i < f.queue.length; i++) {
+    const q = f.queue[i];
+    q.t -= dt;
+    if (q.t <= 0) {
+      f.queue.splice(i--, 1);
+      if (f.respawnTimer <= 0) q.fn();
+    }
+  }
+}
+
+function spawnShockwave(x, y, z, color, maxRadius) {
+  const geo = new THREE.RingGeometry(0.3, 0.7, 28);
+  const mat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(x, y + 0.25, z);
+  scene.add(mesh);
+  effects.push({ mesh, life: 0.35, maxLife: 0.35, maxRadius });
+}
+
+const _mz = new THREE.Vector3();
+function fireProjectile(owner, isSkill) {
+  const dirX = Math.sin(owner.yaw);
+  const dirZ = Math.cos(owner.yaw);
+  const isGold = isSkill && owner.charId === 'yoichi';
+  const isArrow = owner.charId === 'yoichi';
+  const color = isGold ? 0xffd700 : (isArrow ? 0x8a6a3a : 0x2a2a2a);
+
+  const geo = isArrow
+    ? new THREE.CylinderGeometry(0.03, 0.03, isGold ? 1.8 : 1.1, 6)
+    : new THREE.SphereGeometry(isSkill ? 0.13 : 0.1, 8, 8);
+  if (isArrow) geo.rotateX(Math.PI / 2);
+
+  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color }));
+  owner.rig.muzzlePoint.getWorldPosition(_mz);
+  mesh.position.set(_mz.x, owner.y + 1.35, _mz.z);
+  mesh.rotation.y = owner.yaw;
+  scene.add(mesh);
+
+  projectiles.push({
+    mesh,
+    team: owner.team,
+    owner,
+    vx: dirX * (isGold ? 50 : (isArrow ? 40 : 46)),
+    vz: dirZ * (isGold ? 50 : (isArrow ? 40 : 46)),
+    dmg: isGold ? 58 : (isSkill ? 28 : 24),
+    pierce: isGold,
+    hitSet: new Set(),
+    life: 1.3,
+    trailT: 0,
+    gold: isGold,
+    visual: !owned(owner)   // 他の人の弾は見た目だけ（当たり判定は撃った人の画面で行う）
+  });
+}
+
+// --- 3Dエフェクト ---
+const sparkGeo = new THREE.BoxGeometry(0.09, 0.09, 0.09);
+const puffGeo = new THREE.SphereGeometry(0.22, 8, 6);
+function addEffect(mesh, life, update, shared) {
+  scene.add(mesh);
+  effects.push({ mesh, life, maxLife: life, update, shared });
+}
+function spawnSparks(x, y, z, color, count, speed) {
+  for (let i = 0; i < count; i++) {
+    const m = new THREE.Mesh(sparkGeo, new THREE.MeshBasicMaterial({ color, transparent: true }));
+    m.position.set(x, y, z);
+    const a = Math.random() * Math.PI * 2, up = Math.random();
+    const v = { x: Math.cos(a) * speed * (0.4 + Math.random()), y: speed * (0.4 + up), z: Math.sin(a) * speed * (0.4 + Math.random()) };
+    addEffect(m, 0.35 + Math.random() * 0.25, (ef, r, dt) => {
+      ef.mesh.position.x += v.x * dt; ef.mesh.position.y += v.y * dt; ef.mesh.position.z += v.z * dt;
+      v.y -= 14 * dt;
+      ef.mesh.material.opacity = 1 - r;
+      ef.mesh.scale.setScalar(1 - r * 0.6);
+    }, true);
+  }
+}
+function spawnPuff(x, y, z, color, size, life, rise) {
+  const m = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, depthWrite: false }));
+  m.position.set(x, y, z);
+  addEffect(m, life, (ef, r, dt) => {
+    ef.mesh.scale.setScalar(size * (0.4 + r * 1.6));
+    ef.mesh.position.y += rise * dt;
+    ef.mesh.material.opacity = 0.8 * (1 - r);
+  }, true);
+}
+function muzzleFlash(f) {
+  if (f.dummy) return;
+  f.rig.muzzlePoint.getWorldPosition(_mz);
+  spawnPuff(_mz.x, _mz.y, _mz.z, 0xffe27a, 0.9, 0.08, 0);       // 発火の閃光
+  spawnPuff(_mz.x, _mz.y, _mz.z, 0xff9a2a, 0.6, 0.12, 0);
+  for (let i = 0; i < 4; i++) {                                     // 黒色火薬の白煙
+    spawnPuff(_mz.x + (Math.random() - 0.5) * 0.3, _mz.y, _mz.z + (Math.random() - 0.5) * 0.3,
+      0xd9d4c8, 1.1 + Math.random() * 0.6, 0.7 + Math.random() * 0.4, 0.8);
+  }
+  spawnSparks(_mz.x, _mz.y, _mz.z, 0xffc040, 4, 3);
+}
+// 斬撃の軌跡（扇形）：center=向いている方向からの中心角, len=角度幅
+function spawnSlashArc(f, radius, len, color, centerOffset) {
+  if (f.dummy) return;
+  const theta = f.yaw - Math.PI / 2 + (centerOffset || 0);
+  const geo = new THREE.RingGeometry(radius * 0.45, radius, 32, 1, theta - len / 2, len);
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(f.x, f.y + 1.05, f.z);
+  addEffect(m, 0.22, (ef, r) => {
+    ef.mesh.material.opacity = 0.85 * (1 - r);
+    ef.mesh.scale.setScalar(1 + r * 0.15);
+  });
+}
+
+// --- 画面上の数字・HPバー・赤フラッシュ ---
+const _sp = new THREE.Vector3();
+function toScreen(x, y, z) {
+  _sp.set(x, y, z).project(camera);
+  if (_sp.z > 1) return null;
+  return [(_sp.x + 1) / 2 * window.innerWidth, (1 - _sp.y) / 2 * window.innerHeight];
+}
+function showDamageNumber(target, text, cls) {
+  const p = toScreen(target.x, target.y + 2.3, target.z);
+  if (!p) return;
+  const el = document.createElement('div');
+  el.className = 'dmg ' + (cls || '');
+  el.textContent = text;
+  el.style.transform = `translate(${p[0] + (Math.random() - 0.5) * 30}px, ${p[1]}px) translate(-50%, -100%)`;
+  document.getElementById('fx-layer').appendChild(el);
+  setTimeout(() => el.remove(), 1400);
+}
+let hitMarkerTO = null;
+function flashHitMarker() {
+  const c = document.getElementById('crosshair');
+  c.classList.add('hit');
+  clearTimeout(hitMarkerTO);
+  hitMarkerTO = setTimeout(() => c.classList.remove('hit'), 140);
+}
+let hurtTO = null;
+function flashHurt() {
+  const v = document.getElementById('hurt-vignette');
+  v.classList.add('on');
+  clearTimeout(hurtTO);
+  hurtTO = setTimeout(() => v.classList.remove('on'), 90);
+}
+function updateOverheadBars() {
+  for (const f of fighters) {
+    if (!f.bar) continue;
+    const p = f.respawnTimer > 0 ? null : toScreen(f.x, f.y + 2.65, f.z);
+    if (!p) { f.bar.style.display = 'none'; continue; }
+    f.bar.style.display = '';
+    f.bar.style.transform = `translate(${p[0]}px, ${p[1]}px) translate(-50%, -100%)`;
+    f.barFill.style.width = `${(f.hp / f.maxHp) * 100}%`;
+    f.bar.classList.toggle('flash', f.hitFlash > 0);
+  }
+}
+
+// --- 攻撃と技 ---
+function gunShot(f, isSkill) {
+  f.recoil = 1;
+  f.aimTimer = Math.max(f.aimTimer, 1.2);
+  muzzleFlash(f);
+  if (f.dummy) return;
+  fireProjectile(f, isSkill);
+  if (f.isPlayer) camConfig.shakeTimer = Math.max(camConfig.shakeTimer, 0.1);
+}
+function bowShot(f, isSkill) {
+  if (f.dummy) return;
+  fireProjectile(f, isSkill);
+  if (isSkill) { f.rig.muzzlePoint.getWorldPosition(_mz); spawnSparks(_mz.x, _mz.y, _mz.z, 0xffd700, 10, 4); }
+  if (f.isPlayer) camConfig.shakeTimer = Math.max(camConfig.shakeTimer, isSkill ? 0.15 : 0.05);
+}
+function meleeSlash(f) {
+  spawnSlashArc(f, 3.5, 2.5, 0xffffff, 0);
+  if (!canHurt(f)) return;
+  if (f.isPlayer) camConfig.shakeTimer = Math.max(camConfig.shakeTimer, 0.08);
+  fighters.forEach(target => {
+    if (target.team === f.team || target.respawnTimer > 0) return;
+    const dx = target.x - f.x, dz = target.z - f.z, dist = Math.hypot(dx, dz);
+    const front = Math.cos(Math.atan2(dx, dz) - f.yaw) > 0.35; // 前方約140度
+    if (dist < 3.6 && (front || dist < 1.2)) damageFighter(target, 28, f, 0.6);
+  });
+}
+
+function performAttack(f) {
+  if (f.atkCd > 0 || f.respawnTimer > 0) return;
+  f.atkCd = f.atkCooldownMax;
+  f.atkN = (f.atkN || 0) + 1;
+  if (f.charId === 'nobunaga') {
+    // すでに構えていればすぐ撃つ。そうでなければ構えてから撃つ
+    f.aimTimer = 1.4;
+    f.queue.push({ t: f.aimBlend > 0.8 ? 0.03 : 0.16, fn: () => gunShot(f, false) });
+  } else if (f.charId === 'tomoe') {
+    f.attackDur = 0.46; f.attackAnimTimer = 0.46;
+    f.queue.push({ t: 0.46 * 0.47, fn: () => meleeSlash(f) });    // 振り抜いた瞬間に当たる
+  } else if (f.charId === 'yoichi') {
+    f.attackDur = 0.55; f.attackAnimTimer = 0.55; f.aimTimer = 1.2;
+    f.queue.push({ t: 0.55 * 0.6, fn: () => bowShot(f, false) }); // 引き分けて離れの瞬間に飛ぶ
+  }
+}
+
+function performSkill(f) {
+  if (f.skillCd > 0 || f.respawnTimer > 0) return;
+  f.skillCd = f.skillCooldownMax;
+  f.skN = (f.skN || 0) + 1;
+  if (f.isPlayer) {
+    camConfig.shakeTimer = 0.18;
+    showAnnounce(`${CHARACTERS[f.charId].name} 必殺技「${CHARACTERS[f.charId].skillName}」！`);
+  }
+
+  if (f.charId === 'nobunaga') {
+    // 三段撃ち：構えて3連射
+    f.skillDur = 0.8; f.skillAnimTimer = 0.8; f.aimTimer = 1.6;
+    const d0 = f.aimBlend > 0.8 ? 0.05 : 0.18;
+    for (let i = 0; i < 3; i++) f.queue.push({ t: d0 + i * 0.22, fn: () => gunShot(f, true) });
+  } else if (f.charId === 'tomoe') {
+    f.skillDur = 0.6; f.skillAnimTimer = 0.6;
+    f.queue.push({ t: 0.2, fn: () => {
+      spawnSlashArc(f, 5.2, Math.PI * 2, 0xffae00, 0);
+      if (f.dummy) return;
+      spawnShockwave(f.x, f.y, f.z, 0xffae00, 5.2);
+      if (!canHurt(f)) return;
+      fighters.forEach(target => {
+        if (target.team === f.team || target.respawnTimer > 0) return;
+        const dist = Math.hypot(target.x - f.x, target.z - f.z);
+        if (dist < 5.0) damageFighter(target, 52, f, 2.5);
+      });
+    } });
+  } else if (f.charId === 'yoichi') {
+    // 扇の的：ぎりぎりまで引きしぼってから放つ
+    f.skillDur = 0.85; f.skillAnimTimer = 0.85; f.aimTimer = 1.4;
+    f.queue.push({ t: 0.85 * 0.7, fn: () => bowShot(f, true) });
+  }
+}
+
+// 自分の画面で動かしている武将か（オンラインでは他の人の武将は相手の画面が決める）
+function owned(f) { return !Net.online || f.ctrl === 'local' || f.ctrl === 'cpu'; }
+function canHurt(f) { return !f.dummy && owned(f); }
+
+function damageFighter(target, amount, attacker, knock) {
+  if (target.respawnTimer > 0 || !gameActive) return;
+  if (attacker.isPlayer) target.lastHitByMeAt = performance.now();
+  if (Net.online && !owned(target)) {
+    // 相手の画面に「当たった」と伝え、こちらでは手ごたえだけ表示
+    netPushHit(target, amount, attacker, knock);
+    hitFeedback(target, amount, attacker);
+    return;
+  }
+  applyDamage(target, amount, attacker, knock);
+}
+
+function hitFeedback(target, amount, attacker) {
+  const sparkColor = attacker.charId === 'tomoe' ? 0xffffff : 0xffb040;
+  spawnSparks(target.x, target.y + 1.3, target.z, sparkColor, 8, 4);
+  spawnSparks(target.x, target.y + 1.3, target.z, 0xd0201a, 4, 2.5);
+  const cls = attacker.isPlayer ? 'deal' : (target.isPlayer ? 'hurt' : '');
+  showDamageNumber(target, amount, cls);
+  if (attacker.isPlayer) flashHitMarker();
+}
+
+function applyDamage(target, amount, attacker, knock) {
+  if (target.respawnTimer > 0 || !gameActive) return;
+  target.hp = Math.max(0, target.hp - amount);
+  target.hitFlash = 0.18;
+  target.flinch = 1;
+
+  // ノックバック
+  const dx = target.x - attacker.x, dz = target.z - attacker.z, len = Math.max(0.1, Math.hypot(dx, dz));
+  const kb = knock === undefined || knock === null ? 0.35 : knock;
+  target.x += dx / len * kb;
+  target.z += dz / len * kb;
+
+  hitFeedback(target, amount, attacker);
+  if (target.isPlayer) { flashHurt(); camConfig.shakeTimer = Math.max(camConfig.shakeTimer, 0.22); }
+
+  if (target.hp <= 0) {
+    target.respawnTimer = 4.0;
+    target.rig.root.visible = false;
+    target.queue.length = 0;
+    spawnSparks(target.x, target.y + 1.1, target.z, target.team === 'east' ? 0x4fb3ff : 0xff5a4a, 18, 6);
+    spawnPuff(target.x, target.y + 0.8, target.z, 0xeeeeee, 3, 0.6, 1.2);
+    showDamageNumber(target, '撃破！', 'ko');
+    if (!Net.online || Net.isHost) {
+      if (attacker.team === 'east') eastKills++;
+      else westKills++;
+      updateHudScores();
+    } else {
+      netPushDeath(attacker.team);
+    }
+    if (attacker.isPlayer) {
+      showAnnounce(`${CHARACTERS[target.charId].name} を撃破！`);
+    }
+    if (target.isPlayer) {
+      showAnnounce('討ち取られた…4秒後に本陣から再出陣');
+    }
+  }
+}
+
+// =========================================================
+// 7. 入力操作（PCキーボード・マウス＆スマホタッチ・ジョイスティック）
+// =========================================================
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (!gameActive || !playerFighter || paused) return;
+  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+  if (e.repeat) return;
+  if (e.code === 'Space' && playerFighter.isGrounded && playerFighter.respawnTimer <= 0) {
+    playerFighter.vy = 11.5;
+    playerFighter.isGrounded = false;
+  }
+  if (e.code === 'KeyF' || e.code === 'KeyE') performSkill(playerFighter);
+  if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') triggerDash(playerFighter);
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+function clearInputs() {
+  for (const k in keys) keys[k] = false;
+  mouseAttackHeld = false;
+  btnAttackHeld = false;
+  isDraggingCamera = false;
+  if (typeof resetJoystick === 'function') resetJoystick();
+}
+window.addEventListener('blur', () => clearInputs());
+let mouseAttackHeld = false;
+let btnAttackHeld = false;
+
+function triggerDash(f) {
+  if (f.dashCd > 0 || f.respawnTimer > 0) return;
+  f.dashCd = 3.0;
+  f.dashActiveTimer = 0.45;
+}
+
+// マウスドラッグ＆ポインターロックによる滑らかな視点回転
+let isDraggingCamera = false;
+let lastPointerX = 0;
+let lastPointerY = 0;
+
+// マウスロック：クリックでカーソルを消して、マウスを動かすだけで視点が回る（Escで解除）
+function requestLock() {
+  if (!canvas.requestPointerLock) return;
+  try {
+    const r = canvas.requestPointerLock();
+    if (r && r.catch) r.catch(() => {});
+  } catch (err) {}
+}
+function updateLockHint() {
+  const locked = document.pointerLockElement === canvas;
+  document.getElementById('lock-hint').classList.toggle('hidden', !gameActive || locked || !matchMedia('(pointer: fine)').matches);
+}
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement !== canvas) mouseAttackHeld = false;
+  updateLockHint();
+});
+canvas.addEventListener('mousedown', e => {
+  if (!gameActive) return;
+  if (e.button === 0 && document.pointerLockElement !== canvas && matchMedia('(pointer: fine)').matches) {
+    requestLock();
+  }
+  if (e.button === 0) {
+    isDraggingCamera = document.pointerLockElement !== canvas;
+    lastPointerX = e.clientX;
+    lastPointerY = e.clientY;
+    mouseAttackHeld = true;
+  }
+});
+window.addEventListener('mousemove', e => {
+  if (!gameActive) return;
+  if (document.pointerLockElement === canvas) {
+    camConfig.targetYaw -= e.movementX * 0.003 * camConfig.sensitivity;
+    camConfig.targetPitch = Math.max(-0.35, Math.min(0.75, camConfig.targetPitch + e.movementY * 0.0025 * camConfig.sensitivity));
+  } else if (isDraggingCamera) {
+    const dx = e.clientX - lastPointerX;
+    const dy = e.clientY - lastPointerY;
+    lastPointerX = e.clientX;
+    lastPointerY = e.clientY;
+    camConfig.targetYaw -= dx * 0.005 * camConfig.sensitivity;
+    camConfig.targetPitch = Math.max(-0.35, Math.min(0.75, camConfig.targetPitch + dy * 0.004 * camConfig.sensitivity));
+  }
+});
+window.addEventListener('mouseup', () => { isDraggingCamera = false; mouseAttackHeld = false; });
+
+// タッチ視点操作（画面右半分）
+let camTouchId = null;
+canvas.addEventListener('touchstart', e => {
+  if (!gameActive) return;
+  for (const t of e.changedTouches) {
+    if (t.clientX > window.innerWidth * 0.4 && camTouchId === null) {
+      camTouchId = t.identifier;
+      lastPointerX = t.clientX;
+      lastPointerY = t.clientY;
+    }
+  }
+}, { passive: true });
+
+canvas.addEventListener('touchmove', e => {
+  if (!gameActive) return;
+  for (const t of e.changedTouches) {
+    if (t.identifier === camTouchId) {
+      const dx = t.clientX - lastPointerX;
+      const dy = t.clientY - lastPointerY;
+      lastPointerX = t.clientX;
+      lastPointerY = t.clientY;
+      camConfig.targetYaw -= dx * 0.006 * camConfig.sensitivity;
+      camConfig.targetPitch = Math.max(-0.35, Math.min(0.75, camConfig.targetPitch + dy * 0.005 * camConfig.sensitivity));
+    }
+  }
+}, { passive: true });
+
+canvas.addEventListener('touchend', e => {
+  for (const t of e.changedTouches) {
+    if (t.identifier === camTouchId) camTouchId = null;
+  }
+});
+
+// 仮想ジョイスティック
+const joyZone = document.getElementById('joystick-zone');
+const joyKnob = document.getElementById('joystick-knob');
+let joyTouchId = null;
+let joyVec = { x: 0, y: 0 };
+
+joyZone.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  joyTouchId = t.identifier;
+  updateJoystick(t.clientX, t.clientY);
+}, { passive: false });
+
+joyZone.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier === joyTouchId) updateJoystick(t.clientX, t.clientY);
+  }
+}, { passive: false });
+
+function resetJoystick() {
+  joyTouchId = null;
+  joyVec.x = 0;
+  joyVec.y = 0;
+  joyKnob.style.transform = `translate(0px, 0px)`;
+}
+joyZone.addEventListener('touchend', resetJoystick);
+joyZone.addEventListener('touchcancel', resetJoystick);
+
+function updateJoystick(cx, cy) {
+  const rect = joyZone.getBoundingClientRect();
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  let dx = cx - centerX;
+  let dy = cy - centerY;
+  const maxR = 42;
+  const dist = Math.hypot(dx, dy);
+  if (dist > maxR) {
+    dx = (dx / dist) * maxR;
+    dy = (dy / dist) * maxR;
+  }
+  joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+  joyVec.x = dx / maxR;
+  joyVec.y = dy / maxR;
+}
+
+// 画面右下アクションボタン
+function onPress(id, fn) {
+  document.getElementById(id).addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (gameActive && playerFighter) fn();
+  });
+}
+onPress('btn-jump', () => {
+  if (playerFighter.isGrounded && playerFighter.respawnTimer <= 0) {
+    playerFighter.vy = 11.5;
+    playerFighter.isGrounded = false;
+  }
+});
+onPress('btn-dash', () => triggerDash(playerFighter));
+onPress('btn-skill', () => performSkill(playerFighter));
+onPress('btn-attack', () => { btnAttackHeld = true; });
+['pointerup', 'pointercancel', 'pointerleave'].forEach(n =>
+  document.getElementById('btn-attack').addEventListener(n, () => { btnAttackHeld = false; }));
+
+// 視点感度・滑らかさ設定UI
+document.getElementById('toggle-settings-btn').addEventListener('click', () => {
+  document.getElementById('settings-panel').classList.toggle('hidden');
+});
+document.getElementById('sens-slider').addEventListener('input', e => {
+  camConfig.sensitivity = parseFloat(e.target.value);
+  document.getElementById('sens-val').textContent = camConfig.sensitivity.toFixed(1) + 'x';
+});
+
+
+// =========================================================
+// 8. 移動・衝突判定＆AIロジック
+// =========================================================
+function resolveStageCollisions(f) {
+  // 外周境界
+  f.x = Math.max(-52, Math.min(52, f.x));
+  f.z = Math.max(-52, Math.min(52, f.z));
+
+  // 連吾川（Z = -4.2 〜 +4.2）は3つの橋（X = -22, 0, +22 付近）以外では渡れない（ジャンプ中は越えられる）
+  const onBridge = Math.abs(f.x - (-22)) < 3.4 || Math.abs(f.x) < 3.4 || Math.abs(f.x - 22) < 3.4;
+  if (!onBridge && f.y < 0.5 && Math.abs(f.z) < 4.2) {
+    f.z = f.z < 0 ? -4.2 : 4.2;
+  }
+
+  // 馬防柵との衝突押し戻し
+  for (const obs of obstacles) {
+    const dx = f.x - obs.x;
+    const dz = f.z - obs.z;
+    if (Math.abs(dx) < obs.halfW + 0.45 && Math.abs(dz) < obs.halfD + 0.45 && f.y < obs.height) {
+      if (Math.abs(dx) / obs.halfW > Math.abs(dz) / obs.halfD) {
+        f.x = obs.x + Math.sign(dx) * (obs.halfW + 0.45);
+      } else {
+        f.z = obs.z + Math.sign(dz) * (obs.halfD + 0.45);
+      }
+    }
+  }
+}
+
+// 柵の列と川：通れる「すき間」の中心
+const BARRIER_LINES = [
+  { z: -23, off: 1.8, gaps: [-30, -9, 9, 30] },
+  { z: -11, off: 1.8, gaps: [-40, -20.5, 0, 20.5, 40] },
+  { z: 0, off: 5.6, gaps: [-22, 0, 22], river: true },
+  { z: 11, off: 1.8, gaps: [-40, -20.5, 0, 20.5, 40] },
+  { z: 23, off: 1.8, gaps: [-30, -9, 9, 30] }
+];
+function linePassable(L, x) {
+  if (L.river) return [-22, 0, 22].some(b => Math.abs(x - b) < 2.6);
+  return !obstacles.some(o => o.z === L.z && Math.abs(x - o.x) < o.halfW + 0.8);
+}
+// 目的地までの間に柵・川があれば、いちばん近いすき間を経由する
+function routeTo(f, tx, tz) {
+  const dir = Math.sign(tz - f.z);
+  if (!dir) return { x: tx, z: tz };
+  let L = null;
+  for (const line of BARRIER_LINES) {
+    if ((line.z - f.z) * dir > 0.05 && (tz - line.z) * dir > 0.05) {
+      if (!L || Math.abs(line.z - f.z) < Math.abs(L.z - f.z)) L = line;
+    }
+  }
+  if (!L) return { x: tx, z: tz };
+  const t = (L.z - f.z) / (tz - f.z);
+  if (linePassable(L, f.x + (tx - f.x) * t)) return { x: tx, z: tz };
+  let best = L.gaps[0], bestCost = Infinity;
+  for (const g of L.gaps) {
+    const c = Math.hypot(g - f.x, L.z - f.z) + Math.hypot(tx - g, tz - L.z);
+    if (c < bestCost) { bestCost = c; best = g; }
+  }
+  // すき間の手前に寄ってから、まっすぐ通り抜ける
+  if (Math.abs(f.x - best) > 2.0) return { x: best, z: L.z - dir * L.off };
+  return { x: best, z: L.z + dir * L.off };
+}
+
+function updateFighterAI(f, dt) {
+  const ownFlagZ = f.team === 'east' ? -42 : 42;
+  const enemyFlagZ = -ownFlagZ;
+  const isMelee = f.charId === 'tomoe';
+  const atkRange = isMelee ? 3.3 : 18.0;
+
+  let nearestEnemy = null;
+  let minDist = Infinity;
+  let raider = null; // 自陣の旗に近づいている敵
+  for (const other of fighters) {
+    if (other.team === f.team || other.respawnTimer > 0) continue;
+    const d = Math.hypot(other.x - f.x, other.z - f.z);
+    if (d < minDist) { minDist = d; nearestEnemy = other; }
+    if (Math.hypot(other.x, other.z - ownFlagZ) < 16) raider = other;
+  }
+
+  let targetX, targetZ, chase = null;
+  if (f.role === 'defend') {
+    if (raider) chase = raider;
+    else if (nearestEnemy && minDist < 12) chase = nearestEnemy;
+    targetX = f.guardX;
+    targetZ = ownFlagZ * 0.8;
+  } else {
+    if (nearestEnemy && minDist < 22) chase = nearestEnemy;
+    targetX = 0;
+    targetZ = enemyFlagZ;
+  }
+  if (chase) { targetX = chase.x; targetZ = chase.z; }
+
+  const wp = routeTo(f, targetX, targetZ);
+  const dx = wp.x - f.x;
+  const dz = wp.z - f.z;
+  const moveYaw = Math.atan2(dx, dz);
+  const distToWp = Math.hypot(dx, dz);
+
+  // 攻撃できる距離なら敵の方を向き、そうでなければ進む方向を向く
+  const enemyInRange = nearestEnemy && minDist < atkRange;
+  const faceYaw = enemyInRange ? Math.atan2(nearestEnemy.x - f.x, nearestEnemy.z - f.z) : moveYaw;
+  let diff = faceYaw - f.yaw;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  f.yaw += diff * Math.min(1, 10 * dt);
+
+  const stopDist = chase ? (isMelee ? 1.8 : 12.0) : 1.0;
+  const distToGoal = chase ? Math.hypot(chase.x - f.x, chase.z - f.z) : distToWp;
+  if (distToGoal > stopDist && distToWp > 0.3) {
+    const speed = f.baseSpeed * 0.8;
+    f.x += Math.sin(moveYaw) * speed * dt;
+    f.z += Math.cos(moveYaw) * speed * dt;
+    f.moveSpeedRatio = 0.8;
+  } else {
+    f.moveSpeedRatio = 0;
+  }
+
+  if (enemyInRange && Math.abs(diff) < 0.35) {
+    const skillOk = isMelee ? minDist < 4.6 : true;
+    if (f.skillCd <= 0 && skillOk && Math.random() < 0.03) performSkill(f);
+    else if (f.atkCd <= 0) performAttack(f);
+  }
+}
+
+// 武将どうしが重ならないように押し合う
+function separateFighters() {
+  for (let i = 0; i < fighters.length; i++) {
+    for (let j = i + 1; j < fighters.length; j++) {
+      const a = fighters[i], b = fighters[j];
+      if (a.respawnTimer > 0 || b.respawnTimer > 0) continue;
+      const ma = owned(a) ? 1 : 0, mb = owned(b) ? 1 : 0;
+      if (!ma && !mb) continue;
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 0.001 && dist < 1.1) {
+        const push = (1.1 - dist) / (ma + mb) / dist;
+        a.x -= dx * push * ma; a.z -= dz * push * ma;
+        b.x += dx * push * mb; b.z += dz * push * mb;
+      }
+    }
+  }
+}
+
+// =========================================================
+// 9. メインゲームループ
+// =========================================================
+let lastTime = performance.now();
+
+function animate(now) {
+  requestAnimationFrame(animate);
+  const dt = Math.min(0.05, (now - lastTime) / 1000);
+  lastTime = now;
+
+  if (gameActive && Net.online) netReceive();
+  const simulate = gameActive && !(paused && !Net.online); // ひとりモードの一時停止中は時間を止める
+  const authority = !Net.online || Net.isHost;               // 時間・旗・勝敗を決める画面
+
+  if (simulate) {
+    // タイマー更新
+    if (authority) matchTimer = Math.max(0, matchTimer - dt);
+    const mins = String(Math.floor(matchTimer / 60)).padStart(2, '0');
+    const secs = String(Math.floor(matchTimer % 60)).padStart(2, '0');
+    document.getElementById('timer-text').textContent = `${mins}:${secs}`;
+    if (authority && matchTimer <= 0) {
+      const w = eastKills > westKills ? 'east' : (westKills > eastKills ? 'west' : 'draw');
+      finishMatch(w, '制限時間終了！撃破数判定による決着');
+    }
+
+    // 各武将の更新
+    fighters.forEach(f => {
+      if (f.ctrl === 'remote') { updateRemoteFighter(f, dt); return; }
+      if (f.respawnTimer > 0) {
+        f.respawnTimer -= dt;
+        if (f.respawnTimer <= 0) {
+          f.hp = f.maxHp;
+          f.x = (Math.random() - 0.5) * 14;
+          f.z = f.team === 'east' ? -36 : 36;
+          if (f.isPlayer) { camConfig.targetYaw = f.team === 'east' ? 0 : Math.PI; }
+          f.y = 0; f.vy = 0; f.isGrounded = true;
+          f.dashActiveTimer = 0; f.queue.length = 0;
+          f.attackAnimTimer = 0; f.skillAnimTimer = 0;
+          f.aimTimer = 0; f.aimBlend = 0; f.recoil = 0; f.flinch = 0; f.hitFlash = 0;
+          f.rig.root.visible = true;
+        }
+        return;
+      }
+
+      tickFighter(f, dt);
+
+      if (f.isPlayer) {
+        // プレイヤー移動入力
+        let inX = paused ? 0 : joyVec.x;
+        let inY = paused ? 0 : joyVec.y;
+        if (paused) { /* 一時停止メニュー中は操作しない */ }
+        else if (keys['KeyW'] || keys['ArrowUp']) inY -= 1;
+        if (keys['KeyS'] || keys['ArrowDown']) inY += 1;
+        if (keys['KeyA'] || keys['ArrowLeft']) inX -= 1;
+        if (keys['KeyD'] || keys['ArrowRight']) inX += 1;
+
+        const inputLen = Math.min(1, Math.hypot(inX, inY));
+        const dashBoost = f.dashActiveTimer > 0 ? 1.55 : 1.0;
+
+        if (inputLen > 0.05) {
+          const forwardAngle = camConfig.currentYaw;
+          const moveAngle = forwardAngle + Math.atan2(-inX, -inY);
+          const speed = f.baseSpeed * inputLen * dashBoost;
+          f.x += Math.sin(moveAngle) * speed * dt;
+          f.z += Math.cos(moveAngle) * speed * dt;
+          f.moveSpeedRatio = inputLen * dashBoost;
+        } else {
+          f.moveSpeedRatio = 0;
+        }
+
+        // プレイヤーの向きをカメラの照準方向へ滑らかに同期
+        let yawDiff = camConfig.currentYaw - f.yaw;
+        while (yawDiff > Math.PI) yawDiff -= Math.PI * 2;
+        while (yawDiff < -Math.PI) yawDiff += Math.PI * 2;
+        f.yaw = camConfig.currentYaw;
+
+        if (!paused && (mouseAttackHeld || btnAttackHeld)) performAttack(f);
+      } else {
+        updateFighterAI(f, dt);
+      }
+
+      // 重力・ジャンプ・着地判定
+      if (!f.isGrounded || f.vy > 0) {
+        f.y += f.vy * dt;
+        f.vy -= 28.0 * dt;
+        if (f.y <= 0) {
+          f.y = 0;
+          f.vy = 0;
+          f.isGrounded = true;
+          f.landingTimer = 0.22;
+        }
+      }
+
+      resolveStageCollisions(f);
+
+      // 3Dモデルの位置・回転・多関節アニメーション更新
+      f.rig.root.position.set(f.x, f.y, f.z);
+      f.rig.root.rotation.y = f.yaw;
+      f.animTime += dt * (0.4 + f.moveSpeedRatio * 0.9);
+
+      updateCharacterAnimation(f.rig, f, dt);
+
+    });
+
+    separateFighters();
+    fighters.forEach(f => { if (f.respawnTimer <= 0 && owned(f)) { resolveStageCollisions(f); f.rig.root.position.set(f.x, f.y, f.z); } });
+
+    if (authority) {
+    // 本陣の旗の占領：守る側が円の中にいると止まり、だれもいないと少しずつ戻る
+    const inCamp = (team, z) => fighters.some(f => f.team === team && f.respawnTimer <= 0 && Math.hypot(f.x, f.z - z) < 5.0);
+    const eAtk = inCamp('east', 42), wDef = inCamp('west', 42);
+    const wAtk = inCamp('west', -42), eDef = inCamp('east', -42);
+    if (eAtk && !wDef) eastFlagProgress = Math.min(100, eastFlagProgress + 18 * dt);
+    else if (!eAtk) eastFlagProgress = Math.max(0, eastFlagProgress - 8 * dt);
+    if (wAtk && !eDef) westFlagProgress = Math.min(100, westFlagProgress + 18 * dt);
+    else if (!wAtk) westFlagProgress = Math.max(0, westFlagProgress - 8 * dt);
+    if (eastFlagProgress >= 100) finishMatch('east', '敵本陣の大旗を100%占領！');
+    else if (westFlagProgress >= 100) finishMatch('west', '西軍が東軍本陣の大旗を占領！');
+    }
+
+    // 飛び道具の更新
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const p = projectiles[i];
+      p.life -= dt;
+      p.mesh.position.x += p.vx * dt;
+      p.mesh.position.z += p.vz * dt;
+
+      let removeProj = p.life <= 0;
+
+      // 弾・矢は馬防柵のすき間をぬけて届く（長篠の柵越し射撃）
+
+      // 敵武将との当たり判定
+      for (const target of fighters) {
+        if (target.team !== p.team && target.respawnTimer <= 0 && !p.hitSet.has(target)) {
+          const dist = Math.hypot(target.x - p.mesh.position.x, target.z - p.mesh.position.z);
+          if (dist < 0.95) {
+            p.hitSet.add(target);
+            if (p.visual) spawnSparks(p.mesh.position.x, p.mesh.position.y, p.mesh.position.z, 0xffb040, 5, 3);
+            else damageFighter(target, p.dmg, p.owner);
+            if (!p.pierce) {
+              removeProj = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (removeProj) {
+        scene.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        projectiles.splice(i, 1);
+      }
+    }
+
+    // 飛んでいる矢・弾の軌跡
+    projectiles.forEach(p => {
+      p.trailT -= dt;
+      if (p.trailT <= 0) {
+        p.trailT = 0.025;
+        const pos = p.mesh.position;
+        spawnPuff(pos.x, pos.y, pos.z, p.gold ? 0xffd700 : 0xf2efe6, p.gold ? 0.5 : 0.25, 0.25, 0);
+      }
+    });
+
+    // エフェクト更新
+    for (let i = effects.length - 1; i >= 0; i--) {
+      const ef = effects[i];
+      ef.life -= dt;
+      const ratio = Math.min(1, 1 - ef.life / ef.maxLife);
+      if (ef.update) ef.update(ef, ratio, dt);
+      else {
+        const scale = 1 + ratio * ef.maxRadius;
+        ef.mesh.scale.set(scale, scale, 1);
+        ef.mesh.material.opacity = Math.max(0, 1 - ratio);
+      }
+      if (ef.life <= 0) {
+        scene.remove(ef.mesh);
+        if (!ef.shared) ef.mesh.geometry.dispose();
+        ef.mesh.material.dispose();
+        effects.splice(i, 1);
+      }
+    }
+
+    // カメラとHUD更新
+    updateSmoothTPSCamera(playerFighter, dt);
+    updatePlayerHud();
+    updateOverheadBars();
+    updateAimGuide();
+    if (Net.online) netSend(now);
+  }
+
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(animate);
+
+// =========================================================
+// 10. UI・図鑑3Dビューア・画面遷移
+// =========================================================
+function renderCharSelectCards() {
+  const grid = document.getElementById('char-select-grid');
+  grid.innerHTML = '';
+  Object.values(CHARACTERS).forEach(c => {
+    const card = document.createElement('div');
+    card.className = 'char-card' + (c.id === selectedCharId ? ' selected' : '');
+    card.innerHTML = `
+      <span class="char-era">${c.era}</span>
+      <h3>${c.name}</h3>
+      <div style="font-size:12px; color:#ffd700; margin-bottom:6px;">武器：${c.weaponName}</div>
+      <p class="char-desc">${c.desc}</p>
+      <div class="char-skill">${c.skillDesc}</div>
+    `;
+    card.addEventListener('click', () => {
+      selectedCharId = c.id;
+      renderCharSelectCards();
+    });
+    grid.appendChild(card);
+  });
+}
+renderCharSelectCards();
+
+// 図鑑3Dビューア
+const zukanCanvas = document.getElementById('zukan-canvas');
+const zukanRenderer = new THREE.WebGLRenderer({ canvas: zukanCanvas, antialias: true, alpha: true });
+const zukanScene = new THREE.Scene();
+const zukanCamera = new THREE.PerspectiveCamera(45, 2, 0.1, 50);
+zukanCamera.position.set(0, 1.35, 3.6);
+zukanCamera.lookAt(0, 1.1, 0);
+zukanScene.add(new THREE.HemisphereLight(0xffffff, 0x443322, 0.9));
+const zLight = new THREE.DirectionalLight(0xfff0dd, 0.9);
+zLight.position.set(3, 5, 4);
+zukanScene.add(zLight);
+
+let zukanRig = null;
+let zukanCharId = 'nobunaga';
+let zukanRotY = 0.4;
+let zukanFighter = null;
+
+function loadZukanChar(charId) {
+  zukanCharId = charId;
+  if (zukanRig) zukanScene.remove(zukanRig.root);
+  zukanRig = createCharacterRig(charId, 'east');
+  zukanScene.add(zukanRig.root);
+  const spec = CHARACTERS[charId];
+  zukanFighter = Object.assign(animFields(), {
+    charId, rig: zukanRig, dummy: true, team: 'east', x: 0, y: 0, z: 0, yaw: 0,
+    atkCooldownMax: spec.atkCooldown, skillCooldownMax: spec.skillCooldown
+  });
+
+  const c = CHARACTERS[charId];
+  document.getElementById('zukan-info').innerHTML = `
+    <div style="font-size:18px; font-weight:bold; color:#ffd700; margin-bottom:4px;">${c.name}（${c.era}） ― 武器：${c.weaponName}</div>
+    <p style="margin-bottom:6px;">${c.bio}</p>
+    <div style="background:rgba(0,0,0,0.45); padding:8px 12px; border-left:3px solid #ffd700; border-radius:4px; font-size:13px;">${c.histNote}</div>
+  `;
+}
+
+function renderZukanTabs() {
+  const wrap = document.getElementById('zukan-tabs');
+  wrap.innerHTML = '';
+  Object.values(CHARACTERS).forEach(c => {
+    const b = document.createElement('button');
+    b.className = 'small-btn';
+    b.textContent = c.name;
+    b.onclick = () => loadZukanChar(c.id);
+    wrap.appendChild(b);
+  });
+}
+renderZukanTabs();
+
+document.getElementById('open-zukan-btn').addEventListener('click', () => {
+  document.getElementById('title-screen').classList.add('hidden');
+  document.getElementById('zukan-screen').classList.remove('hidden');
+  const wrap = document.getElementById('zukan-canvas-wrap');
+  zukanRenderer.setSize(wrap.clientWidth, wrap.clientHeight);
+  zukanCamera.aspect = wrap.clientWidth / wrap.clientHeight;
+  zukanCamera.updateProjectionMatrix();
+  loadZukanChar(selectedCharId);
+});
+
+document.getElementById('close-zukan-btn').addEventListener('click', () => {
+  document.getElementById('zukan-screen').classList.add('hidden');
+  document.getElementById('title-screen').classList.remove('hidden');
+});
+
+document.getElementById('zukan-atk-btn').addEventListener('click', () => { if (zukanFighter) { zukanFighter.atkCd = 0; performAttack(zukanFighter); } });
+document.getElementById('zukan-skill-btn').addEventListener('click', () => { if (zukanFighter) { zukanFighter.skillCd = 0; performSkill(zukanFighter); } });
+
+let zukanDragging = false;
+let zukanLastX = 0;
+const zukanWrap = document.getElementById('zukan-canvas-wrap');
+zukanWrap.addEventListener('pointerdown', e => { zukanDragging = true; zukanLastX = e.clientX; });
+window.addEventListener('pointermove', e => {
+  if (zukanDragging) {
+    zukanRotY += (e.clientX - zukanLastX) * 0.012;
+    zukanLastX = e.clientX;
+  }
+});
+window.addEventListener('pointerup', () => { zukanDragging = false; });
+
+let zukanLast = performance.now();
+function animateZukan(now) {
+  requestAnimationFrame(animateZukan);
+  const dt = Math.min(0.05, ((now || performance.now()) - zukanLast) / 1000);
+  zukanLast = now || performance.now();
+  if (!document.getElementById('zukan-screen').classList.contains('hidden') && zukanRig) {
+    zukanRig.root.rotation.y = zukanRotY;
+    tickFighter(zukanFighter, dt);
+    zukanFighter.animTime += dt * 0.4;
+    updateCharacterAnimation(zukanRig, zukanFighter, dt);
+    zukanRenderer.render(zukanScene, zukanCamera);
+  }
+}
+animateZukan();
+
+// ひとりで練習
+document.getElementById('start-quiz-btn').addEventListener('click', startSolo);
+
+// roster: [{id, team, char, kind:'human'|'cpu', name, role}]
+function startBattle(roster, myId) {
+  ['title-screen', 'result-screen', 'room-screen', 'pause-screen'].forEach(id => document.getElementById(id).classList.add('hidden'));
+  document.getElementById('hud').classList.remove('hidden');
+  paused = false;
+
+  // 既存ファイター削除
+  fighters.forEach(f => scene.remove(f.rig.root));
+  document.getElementById('fx-layer').innerHTML = '';
+  fighters = [];
+  projectiles.forEach(p => scene.remove(p.mesh));
+  projectiles = [];
+  effects.forEach(ef => scene.remove(ef.mesh));
+  effects = [];
+  clearInputs();
+
+  matchTimer = 120;
+  eastKills = 0;
+  westKills = 0;
+  eastFlagProgress = 0;
+  westFlagProgress = 0;
+  updateHudScores();
+
+  const slotIdx = { east: 0, west: 0 };
+  const xs = [0, -10, 10];
+  playerFighter = null;
+  roster.forEach(slot => {
+    const i = slotIdx[slot.team]++;
+    const isMe = slot.id === myId;
+    const z = slot.team === 'east' ? -36 : 36;
+    const label = slot.kind === 'human' ? (isMe ? null : slot.name) : null;
+    const f = createFighter(slot.char, slot.team, isMe, xs[i % 3], z, label);
+    f.netId = slot.id;
+    f.kind = slot.kind;
+    f.role = slot.role || 'attack';
+    f.guardX = xs[i % 3] * 0.6;
+    f.yaw = slot.team === 'east' ? 0 : Math.PI;
+    if (isMe) f.ctrl = 'local';
+    else if (slot.kind === 'cpu' && (!Net.online || Net.isHost)) f.ctrl = 'cpu';
+    else f.ctrl = 'remote';
+    if (isMe) playerFighter = f;
+    fighters.push(f);
+  });
+  Net.byId = new Map(fighters.map(f => [f.netId, f]));
+
+  // カメラ初期化（西軍なら反対向き）
+  const startYaw = playerFighter.team === 'east' ? 0 : Math.PI;
+  camConfig.targetYaw = startYaw;
+  camConfig.currentYaw = startYaw;
+  camConfig.targetPitch = 0.25;
+  camConfig.currentPitch = 0.25;
+  camConfig.currentPos.set(playerFighter.x, 3.5, playerFighter.z - 6 * Math.cos(startYaw));
+  camConfig.currentLookAt.set(playerFighter.x, 2, playerFighter.z + 10 * Math.cos(startYaw));
+  camConfig.currentDist = camConfig.idealDist;
+
+  document.getElementById('hud-char-name').textContent = CHARACTERS[playerFighter.charId].name + (Net.online ? `（${playerFighter.team === 'east' ? '東軍' : '西軍'}）` : '');
+  document.getElementById('skill-btn-label').textContent = CHARACTERS[playerFighter.charId].skillName;
+
+  gameActive = true;
+  updateLockHint();
+  showAnnounce(`長篠の合戦、開戦！あなたは${playerFighter.team === 'east' ? '東軍' : '西軍'}。敵本陣の旗を奪うか敵を撃破せよ！`);
+}
+
+function startSolo() {
+  Net.online = false;
+  const ids = ['nobunaga', 'tomoe', 'yoichi'];
+  const allies = ids.filter(id => id !== selectedCharId);
+  startBattle([
+    { id: 'me', team: 'east', char: selectedCharId, kind: 'human', name: myName() },
+    { id: 'cpu-e1', team: 'east', char: allies[0], kind: 'cpu', role: 'attack' },
+    { id: 'cpu-e2', team: 'east', char: allies[1], kind: 'cpu', role: 'defend' },
+    { id: 'cpu-w0', team: 'west', char: 'nobunaga', kind: 'cpu', role: 'defend' },
+    { id: 'cpu-w1', team: 'west', char: 'tomoe', kind: 'cpu', role: 'attack' },
+    { id: 'cpu-w2', team: 'west', char: 'yoichi', kind: 'cpu', role: 'attack' }
+  ], 'me');
+}
+
+// 試合を片付けて、ロビー（ひとり→タイトル、オンライン→部屋）へ
+function leaveMatchToLobby() {
+  gameActive = false;
+  paused = false;
+  if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
+  clearInputs();
+  fighters.forEach(f => { scene.remove(f.rig.root); f.bar = null; });
+  fighters = [];
+  projectiles.forEach(p => scene.remove(p.mesh));
+  projectiles = [];
+  document.getElementById('fx-layer').innerHTML = '';
+  ['hud', 'pause-screen', 'result-screen'].forEach(id => document.getElementById(id).classList.add('hidden'));
+  updateLockHint();
+  if (Net.r) {
+    Net.online = false;
+    Net.r.presence({ phase: 'lobby', ready: false, mid: null, s: null, cpus: null, g: null, res: null, roster: null, hits: [], deaths: [] }).catch(() => {});
+    Net.ready = false;
+    document.getElementById('room-screen').classList.remove('hidden');
+    renderRoom();
+  } else {
+    document.getElementById('title-screen').classList.remove('hidden');
+  }
+}
+
+function updateHudScores() {
+  document.getElementById('east-kills').textContent = eastKills;
+  document.getElementById('west-kills').textContent = westKills;
+}
+
+function updatePlayerHud() {
+  if (!playerFighter) return;
+  document.getElementById('hp-text').textContent = `${playerFighter.hp} / ${playerFighter.maxHp}`;
+  document.getElementById('hp-bar').style.width = `${(playerFighter.hp / playerFighter.maxHp) * 100}%`;
+
+  document.getElementById('east-flag-pct').textContent = `${Math.floor(eastFlagProgress)}%`;
+  document.getElementById('east-flag-bar').style.width = `${eastFlagProgress}%`;
+  document.getElementById('west-flag-pct').textContent = `${Math.floor(westFlagProgress)}%`;
+  document.getElementById('west-flag-bar').style.width = `${westFlagProgress}%`;
+
+  document.getElementById('cd-attack').style.height = `${(playerFighter.atkCd / playerFighter.atkCooldownMax) * 100}%`;
+  document.getElementById('cd-skill').style.height = `${(playerFighter.skillCd / playerFighter.skillCooldownMax) * 100}%`;
+  document.getElementById('cd-dash').style.height = `${(playerFighter.dashCd / 3.0) * 100}%`;
+}
+
+let announceTimeout = null;
+function showAnnounce(msg) {
+  const el = document.getElementById('announce-banner');
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(announceTimeout);
+  announceTimeout = setTimeout(() => { el.style.opacity = '0'; }, 2600);
+}
+
+let currentTriviaIdx = 0;
+function finishMatch(winnerTeam, reason) {
+  if (!gameActive) return;
+  gameActive = false;
+  paused = false;
+  document.getElementById('pause-screen').classList.add('hidden');
+  if (Net.online && Net.isHost && Net.r) {
+    Net.r.presence({ phase: 'result', res: [winnerTeam, reason], g: [0, eastKills, westKills, Math.round(eastFlagProgress), Math.round(westFlagProgress)] }).catch(() => {});
+  }
+  Net.online = false;
+  if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
+  document.getElementById('fx-layer').innerHTML = '';
+  fighters.forEach(f => { f.bar = null; });
+  updateLockHint();
+  clearInputs();
+  document.getElementById('hud').classList.add('hidden');
+  document.getElementById('result-screen').classList.remove('hidden');
+
+  const titleEl = document.getElementById('result-title');
+  const myTeam = playerFighter ? playerFighter.team : 'east';
+  const teamName = t => t === 'east' ? '東軍' : '西軍';
+  if (winnerTeam === 'draw') {
+    titleEl.textContent = '引き分け';
+    titleEl.style.color = '#f0e6d2';
+  } else if (winnerTeam === 'none') {
+    titleEl.textContent = '試合終了';
+    titleEl.style.color = '#f0e6d2';
+  } else if (winnerTeam === myTeam) {
+    titleEl.textContent = `${teamName(winnerTeam)}（あなた）の勝利！`;
+    titleEl.style.color = '#ffd700';
+  } else {
+    titleEl.textContent = `${teamName(winnerTeam)}の勝利（惜敗…）`;
+    titleEl.style.color = '#ff7b7b';
+  }
+  document.getElementById('result-reason').textContent = `${reason} （東軍 ${eastKills} 撃破 - 西軍 ${westKills} 撃破）`;
+
+  currentTriviaIdx = Math.floor(Math.random() * TRIVIA_LIST.length);
+  document.getElementById('trivia-text').textContent = TRIVIA_LIST[currentTriviaIdx];
+}
+
+document.getElementById('next-trivia-btn').addEventListener('click', () => {
+  currentTriviaIdx = (currentTriviaIdx + 1) % TRIVIA_LIST.length;
+  document.getElementById('trivia-text').textContent = TRIVIA_LIST[currentTriviaIdx];
+});
+
+document.getElementById('back-to-title-btn').addEventListener('click', leaveMatchToLobby);
+
+
+// =========================================================
+// 11. 一時停止・視点切替
+// =========================================================
+let paused = false;
+let wasLocked = false;
+let lastUnlockAt = 0;
+function setViewMode(mode) {
+  camConfig.mode = mode;
+  document.getElementById('view-toggle-btn').textContent = mode === 'fps' ? '視点：一人称（切替）' : '視点：三人称（切替）';
+  document.getElementById('hud-view-btn').textContent = mode === 'fps' ? '三人称 [V]' : '一人称 [V]';
+  if (mode === 'tps' && playerFighter) { playerFighter.rig.neck.visible = true; }
+  try { localStorage.setItem('rekishi_view', mode); } catch (e) {}
+}
+function openPause() {
+  if (!gameActive || paused) return;
+  paused = true;
+  clearInputs();
+  document.getElementById('pause-note').textContent = Net.online
+    ? 'オンライン対戦中は時間は止まりません。あなたの武将はその場に立ったままになります。'
+    : '時間を止めています。';
+  document.getElementById('pause-screen').classList.remove('hidden');
+}
+function closePause() {
+  if (!paused) return;
+  paused = false;
+  document.getElementById('pause-screen').classList.add('hidden');
+  if (matchMedia('(pointer: fine)').matches) requestLock();
+}
+document.getElementById('pause-btn').addEventListener('click', openPause);
+document.getElementById('resume-btn').addEventListener('click', closePause);
+document.getElementById('quit-btn').addEventListener('click', leaveMatchToLobby);
+document.getElementById('view-toggle-btn').addEventListener('click', () => setViewMode(camConfig.mode === 'fps' ? 'tps' : 'fps'));
+document.getElementById('hud-view-btn').addEventListener('click', () => setViewMode(camConfig.mode === 'fps' ? 'tps' : 'fps'));
+document.getElementById('sens-slider2').addEventListener('input', e => {
+  camConfig.sensitivity = parseFloat(e.target.value);
+  document.getElementById('sens-val2').textContent = camConfig.sensitivity.toFixed(1) + 'x';
+  document.getElementById('sens-slider').value = e.target.value;
+  document.getElementById('sens-val').textContent = camConfig.sensitivity.toFixed(1) + 'x';
+});
+window.addEventListener('keydown', e => {
+  if (!gameActive) return;
+  if (e.code === 'KeyP' || (e.code === 'Escape' && performance.now() - lastUnlockAt > 400)) { if (paused) closePause(); else openPause(); }
+  if (e.code === 'KeyV' && !e.repeat) setViewMode(camConfig.mode === 'fps' ? 'tps' : 'fps');
+});
+// Escでマウスロックが外れたら一時停止メニューを出す
+document.addEventListener('pointerlockchange', () => {
+  const locked = document.pointerLockElement === canvas;
+  if (wasLocked && !locked) lastUnlockAt = performance.now();
+  if (wasLocked && !locked && gameActive) openPause();
+  wasLocked = locked;
+});
+try { if (localStorage.getItem('rekishi_view') === 'fps') setViewMode('fps'); } catch (e) {}
+
+// =========================================================
+// 12. 弾の軌道ガイド（いつも表示）
+// =========================================================
+const aimGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, 1)]);
+const aimMat = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.7, gapSize: 0.4, transparent: true, opacity: 0.85, depthTest: false });
+const aimLine = new THREE.Line(aimGeo, aimMat);
+aimLine.renderOrder = 5;
+aimLine.frustumCulled = false;
+scene.add(aimLine);
+const aimEnd = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.4, 20), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthTest: false }));
+aimEnd.renderOrder = 6;
+scene.add(aimEnd);
+const fanGroup = new THREE.Group();
+const fanMesh = new THREE.Mesh(
+  new THREE.RingGeometry(0.6, 3.6, 28, 1, -Math.PI / 2 - 1.2, 2.4),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false })
+);
+fanMesh.rotation.x = -Math.PI / 2;
+fanMesh.position.y = 0.06;
+fanGroup.add(fanMesh);
+scene.add(fanGroup);
+function hideAim() { aimLine.visible = false; aimEnd.visible = false; fanGroup.visible = false; }
+hideAim();
+function updateAimGuide() {
+  const f = playerFighter;
+  if (!f || !gameActive || f.respawnTimer > 0) { hideAim(); return; }
+  const dirX = Math.sin(f.yaw), dirZ = Math.cos(f.yaw);
+  const enemies = fighters.filter(e => e.team !== f.team && e.respawnTimer <= 0);
+  if (f.charId === 'tomoe') {
+    aimLine.visible = false; aimEnd.visible = false;
+    fanGroup.visible = true;
+    fanGroup.position.set(f.x, f.y, f.z);
+    fanGroup.rotation.y = f.yaw;
+    const inRange = enemies.some(e => {
+      const dx = e.x - f.x, dz = e.z - f.z, d = Math.hypot(dx, dz);
+      return d < 3.6 && Math.cos(Math.atan2(dx, dz) - f.yaw) > 0.35;
+    });
+    fanMesh.material.color.setHex(inRange ? 0xff4a3a : 0xffffff);
+    fanMesh.material.opacity = inRange ? 0.3 : 0.16;
+    return;
+  }
+  fanGroup.visible = false;
+  f.rig.muzzlePoint.getWorldPosition(_mz);
+  const sx = _mz.x, sz = _mz.z, y = f.y + 1.35;
+  const range = f.charId === 'yoichi' ? 40 * 1.3 : 46 * 1.3;
+  // 最初に当たる敵を探す
+  let hitT = range, hit = false;
+  for (const e of enemies) {
+    const ex = e.x - sx, ez = e.z - sz;
+    const t = ex * dirX + ez * dirZ;
+    if (t <= 0 || t >= hitT) continue;
+    const perp = Math.abs(ex * dirZ - ez * dirX);
+    if (perp < 0.95) { hitT = t; hit = true; }
+  }
+  const pos = aimGeo.attributes.position;
+  pos.setXYZ(0, sx, y, sz);
+  pos.setXYZ(1, sx + dirX * hitT, y, sz + dirZ * hitT);
+  pos.needsUpdate = true;
+  aimLine.computeLineDistances();
+  aimGeo.computeBoundingSphere();
+  aimMat.color.setHex(hit ? 0xff4a3a : 0xffffff);
+  aimLine.visible = true;
+  aimEnd.visible = true;
+  aimEnd.position.set(sx + dirX * hitT, y, sz + dirZ * hitT);
+  aimEnd.lookAt(camera.position);
+  aimEnd.material.color.setHex(hit ? 0xff4a3a : 0xffffff);
+  aimEnd.scale.setScalar(hit ? 1.4 : 1);
+}
+
+// =========================================================
+// 13. オンライン対戦（PeerJS / WebRTC：部屋コードで集まる。GitHub Pages などに置いたURLから遊べる）
+//  ・各プレイヤーは自分の武将を動かし、状態を presence で送る
+//  ・ホスト（部屋に最初に入った人）がCPU武将・残り時間・旗・撃破数・勝敗を決める
+//  ・攻撃の当たり判定は撃った人の画面で行い、「当たった」を相手に送る
+// =========================================================
+const Net = {
+  cap: null, r: null, code: '', me: null,
+  online: false, isHost: false, hostPeer: null, mid: null, lastMid: null,
+  ready: false, team: 'east', ts: 0,
+  hitSeq: 0, hits: [], deathSeq: 0, deaths: [], seenHits: {}, seenDeaths: {},
+  lastSend: 0, byId: new Map(), unsub: null
+};
+const r1 = n => Math.round(n * 10) / 10;
+const r2 = n => Math.round(n * 100) / 100;
+
+function myName() {
+  const v = document.getElementById('player-name').value.trim();
+  return v || '名無しの武者';
+}
+(function initName() {
+  let n = '';
+  try { n = localStorage.getItem('rekishi_name') || ''; } catch (e) {}
+  document.getElementById('player-name').value = n || ('武者' + Math.floor(10 + Math.random() * 90));
+  document.getElementById('player-name').addEventListener('change', e => {
+    try { localStorage.setItem('rekishi_name', e.target.value.trim()); } catch (err) {}
+    if (Net.r) Net.r.presence({ name: myName() }).catch(() => {});
+  });
+})();
+
+function setOnlineAvailable(ok) {
+  ['create-room-btn', 'join-room-btn', 'room-code-in'].forEach(id => document.getElementById(id).disabled = !ok);
+}
+
+// ---------- 通信：PeerJS（無料の接続サービス）で「部屋」を作る ----------
+//  部屋を作った人（ホスト）に全員がつながり、ホストが全員の状態をまとめて配り直す。
+//  ?coopTest=1 をURLにつけると、同じパソコンの別タブどうしでテストできる。
+const coopTestMode = /[?&]coopTest=1/.test(location.search);
+let peerLibPromise = null;
+function loadPeerLib() {
+  if (window.Peer) return Promise.resolve();
+  if (peerLibPromise) return peerLibPromise;
+  const urls = [
+    'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js',
+    'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js',
+    'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js'
+  ];
+  peerLibPromise = new Promise((resolve, reject) => {
+    const tryUrl = i => {
+      if (i >= urls.length) { peerLibPromise = null; reject(new Error('load')); return; }
+      const sc = document.createElement('script');
+      sc.src = urls[i];
+      sc.onload = () => window.Peer ? resolve() : tryUrl(i + 1);
+      sc.onerror = () => tryUrl(i + 1);
+      document.head.appendChild(sc);
+    };
+    tryUrl(0);
+  });
+  return peerLibPromise;
+}
+function makeTestPeer(id) {
+  const myId = id || 'g' + Math.random().toString(36).slice(2, 8);
+  const handlers = {};
+  const bc = new BroadcastChannel('rekishi-test');
+  const conns = {};
+  const peer = { id: myId, on(ev, fn) { handlers[ev] = fn; }, destroy() { bc.close(); }, connect(to) { return makeConn(to, true); } };
+  function makeConn(other, initiator) {
+    const h = {};
+    const c = {
+      peer: other, open: false,
+      on(ev, fn) { h[ev] = fn; if (ev === 'open' && c.open) fn(); },
+      send(data) { bc.postMessage({ from: myId, to: other, kind: 'data', data }); },
+      close() { bc.postMessage({ from: myId, to: other, kind: 'close' }); if (h.close) h.close(); delete conns[other]; },
+      _h: h
+    };
+    conns[other] = c;
+    if (initiator) bc.postMessage({ from: myId, to: other, kind: 'hello' });
+    return c;
+  }
+  bc.onmessage = e => {
+    const m = e.data;
+    if (m.to !== myId) return;
+    if (m.kind === 'hello') {
+      const c = makeConn(m.from, false); c.open = true;
+      bc.postMessage({ from: myId, to: m.from, kind: 'ack' });
+      if (handlers.connection) handlers.connection(c);
+      if (c._h.open) c._h.open();
+    } else if (m.kind === 'ack') { const c = conns[m.from]; if (!c) return; c.open = true; if (c._h.open) c._h.open(); }
+    else if (m.kind === 'data') { const c = conns[m.from]; if (c && c._h.data) c._h.data(m.data); }
+    else if (m.kind === 'close') { const c = conns[m.from]; if (c && c._h.close) c._h.close(); delete conns[m.from]; }
+  };
+  setTimeout(() => handlers.open && handlers.open(myId), 30);
+  return peer;
+}
+function newPeer(id) {
+  if (coopTestMode) return Promise.resolve(makeTestPeer(id));
+  return loadPeerLib().then(() => id ? new Peer(id) : new Peer());
+}
+
+// 部屋：presence(自分の状態) / peers(全員の状態) / onPeers(変化の通知) / leave
+function peerRoom(code, create) {
+  const hostId = 'rekishi-taisen-' + code.toLowerCase();
+  return newPeer(create ? hostId : null).then(peer => new Promise((resolve, reject) => {
+    const others = new Map();     // 相手のID → 状態
+    let mine = {};
+    let myId = create ? hostId : null;
+    let snap = Object.freeze([]);
+    const handlers = new Set();
+    const conns = new Map();      // ホスト：つながっているゲスト
+    let hostConn = null;
+    let notifyQueued = false, dirty = false, closed = false, settled = false;
+    const room = {
+      onClosed: null,
+      presence(patch) {
+        for (const k in patch) { if (patch[k] === null) delete mine[k]; else mine[k] = patch[k]; }
+        rebuild();
+        if (create) dirty = true;
+        else if (hostConn && hostConn.open !== false) { try { hostConn.send({ t: 'p', pr: mine }); } catch (e) {} }
+        return Promise.resolve();
+      },
+      peers() { return snap; },
+      onPeers(h) { handlers.add(h); setTimeout(() => handlers.has(h) && h({ peers: snap }), 0); return () => handlers.delete(h); },
+      leave() { closed = true; clearInterval(timer); try { peer.destroy(); } catch (e) {} return Promise.resolve(); }
+    };
+    function rebuild() {
+      const list = [];
+      if (myId) list.push({ peer: myId, presence: Object.freeze({ ...mine }), isMe: true, sameTab: true, kind: 'viewer' });
+      others.forEach((pr, id) => { if (id !== myId) list.push({ peer: id, presence: pr, isMe: false, sameTab: false, kind: 'viewer' }); });
+      snap = Object.freeze(list);
+      if (!notifyQueued) { notifyQueued = true; setTimeout(() => { notifyQueued = false; handlers.forEach(h => h({ peers: snap })); }, 0); }
+    }
+    function lost() {
+      if (closed) return;
+      closed = true; clearInterval(timer);
+      try { peer.destroy(); } catch (e) {}
+      if (room.onClosed) room.onClosed();
+    }
+    // ホストは全員の状態を 1秒に20回 まとめて配る
+    const timer = setInterval(() => {
+      if (!create || !dirty) return;
+      dirty = false;
+      const all = [[hostId, mine]];
+      others.forEach((pr, id) => all.push([id, pr]));
+      conns.forEach(c => { try { if (c.open !== false) c.send({ t: 'all', ps: all }); } catch (e) {} });
+    }, 50);
+    const fail = msg => { if (settled) return; settled = true; clearInterval(timer); try { peer.destroy(); } catch (e) {} reject(new Error(msg)); };
+    const ok = () => { if (settled) return; settled = true; rebuild(); resolve(room); };
+    const to = setTimeout(() => fail(create ? 'net' : 'notfound'), 10000);
+
+    peer.on('error', err => {
+      const type = err && err.type;
+      if (!settled) { clearTimeout(to); fail(type === 'unavailable-id' ? 'taken' : type === 'peer-unavailable' ? 'notfound' : 'net'); }
+      else if (!create && (type === 'network' || type === 'disconnected' || type === 'server-error')) { /* 接続サービスが切れてもつながった相手とは続ける */ }
+    });
+    if (peer.on && !coopTestMode) peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) {} });
+
+    if (create) {
+      peer.on('open', () => { clearTimeout(to); ok(); });
+      peer.on('connection', conn => {
+        if (conns.size >= 5) { setTimeout(() => { try { conn.close(); } catch (e) {} }, 300); return; }
+        conns.set(conn.peer, conn);
+        conn.on('data', m => {
+          if (!m || m.t !== 'p' || typeof m.pr !== 'object' || m.pr === null) return;
+          others.set(conn.peer, Object.freeze(m.pr));
+          dirty = true; rebuild();
+        });
+        conn.on('close', () => { conns.delete(conn.peer); others.delete(conn.peer); dirty = true; rebuild(); });
+        conn.on('error', () => {});
+        dirty = true;
+      });
+    } else {
+      peer.on('open', id => {
+        myId = id;
+        hostConn = peer.connect(hostId, { reliable: true });
+        hostConn.on('open', () => { clearTimeout(to); try { hostConn.send({ t: 'p', pr: mine }); } catch (e) {} ok(); });
+        hostConn.on('data', m => {
+          if (!m || m.t !== 'all' || !Array.isArray(m.ps)) return;
+          others.clear();
+          m.ps.forEach(e => { if (Array.isArray(e) && typeof e[0] === 'string' && e[0] !== myId && e[1] && typeof e[1] === 'object') others.set(e[0], Object.freeze(e[1])); });
+          rebuild();
+        });
+        hostConn.on('close', lost);
+        hostConn.on('error', () => {});
+      });
+    }
+  }));
+}
+
+setOnlineAvailable(true);
+Net.cap = true;
+
+const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function newCode() { let c = ''; for (let i = 0; i < 4; i++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]; return c; }
+
+let roomBusy = false;
+async function enterRoom(code, create, tries) {
+  code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const note = document.getElementById('online-note');
+  if (code.length !== 4) { note.textContent = '部屋コードは4文字です。'; return; }
+  if (roomBusy && !tries) return;
+  roomBusy = true;
+  setOnlineAvailable(false);
+  note.textContent = create ? '部屋を作っています…' : '部屋をさがしています…';
+  try {
+    Net.r = await peerRoom(code, create);
+  } catch (e) {
+    const m = e && e.message;
+    if (create && m === 'taken' && (tries || 0) < 4) return enterRoom(newCode(), true, (tries || 0) + 1);
+    roomBusy = false;
+    setOnlineAvailable(true);
+    note.textContent = m === 'notfound' ? 'その部屋が見つかりません。コードを確かめるか、部屋を作った人がこのページを開いているか確認してください。'
+      : m === 'load' ? '通信の準備ができませんでした。インターネットにつながっているか確認してください。'
+      : 'つながりませんでした。少し待ってからもう一度ためしてください。';
+    return;
+  }
+  roomBusy = false;
+  setOnlineAvailable(true);
+  Net.r.onClosed = onRoomLost;
+  Net.code = code;
+  Net.ts = create ? 0 : Date.now();   // 部屋を作った人がホスト
+  Net.ready = false;
+  Net.team = 'east';
+  Net.lastMid = null;
+  document.getElementById('online-note').textContent = '';
+  await Net.r.presence({ v: 1, ts: Net.ts, name: myName(), team: Net.team, char: selectedCharId, ready: false, phase: 'lobby', hits: [], deaths: [] }).catch(() => {});
+  Net.unsub = Net.r.onPeers(onRoomPeers);
+  document.getElementById('room-code-label').textContent = code;
+  document.getElementById('title-screen').classList.add('hidden');
+  document.getElementById('room-screen').classList.remove('hidden');
+  renderRoom();
+}
+// ホストとの接続が切れた
+function onRoomLost() {
+  if (Net.unsub) Net.unsub();
+  Net.unsub = null;
+  Net.r = null;
+  if (gameActive) { finishMatch('none', 'ホストとの接続が切れたため、試合を終了しました'); return; }
+  document.getElementById('room-screen').classList.add('hidden');
+  if (document.getElementById('result-screen').classList.contains('hidden')) document.getElementById('title-screen').classList.remove('hidden');
+  document.getElementById('online-note').textContent = '部屋との接続が切れました（ホストが部屋を閉じたかもしれません）。';
+}
+async function leaveRoom() {
+  if (Net.unsub) Net.unsub();
+  Net.unsub = null;
+  if (Net.r) await Net.r.leave().catch(() => {});
+  Net.r = null;
+  Net.online = false;
+  document.getElementById('room-screen').classList.add('hidden');
+  document.getElementById('title-screen').classList.remove('hidden');
+}
+
+function roomPlayers() {
+  if (!Net.r) return [];
+  return Net.r.peers().filter(p => p.kind === 'viewer' && p.presence && p.presence.v === 1);
+}
+function lobbyHost(players) {
+  let best = null;
+  for (const p of players) {
+    const ts = Number(p.presence.ts) || 0;
+    if (!best || ts < best.ts || (ts === best.ts && p.peer < best.peer)) best = { ts, peer: p.peer };
+  }
+  return best ? best.peer : null;
+}
+function myPeer() {
+  const p = Net.r && Net.r.peers().find(x => x.isMe && x.sameTab);
+  return p ? p.peer : null;
+}
+
+function onRoomPeers() {
+  Net.me = myPeer();
+  const players = roomPlayers();
+  const hostPeer = lobbyHost(players);
+  const host = players.find(p => p.peer === hostPeer);
+  // ホストが合戦を始めたら、自分が名簿に入っていれば参加する
+  if (!gameActive && host && host.presence.phase === 'battle' && host.presence.mid && host.presence.mid !== Net.lastMid) {
+    const roster = Array.isArray(host.presence.roster) ? host.presence.roster : [];
+    if (Net.me && roster.some(s => s && s.id === Net.me)) {
+      Net.lastMid = host.presence.mid;
+      beginOnlineMatch(host.presence.mid, roster, hostPeer, hostPeer === Net.me);
+      return;
+    }
+  }
+  if (!document.getElementById('room-screen').classList.contains('hidden')) renderRoom();
+}
+
+const CHAR_IDS = ['nobunaga', 'tomoe', 'yoichi'];
+function renderRoom() {
+  if (!Net.r) return;
+  Net.me = myPeer();
+  const players = roomPlayers();
+  const hostPeer = lobbyHost(players);
+  const host = players.find(p => p.peer === hostPeer);
+  const amHost = hostPeer && hostPeer === Net.me;
+  const inLobby = players.filter(p => p.presence.phase !== 'battle');
+  for (const team of ['east', 'west']) {
+    const el = document.getElementById(team + '-slots');
+    el.innerHTML = '';
+    const ps = players.filter(p => p.presence.team === team).slice(0, 3);
+    for (let i = 0; i < 3; i++) {
+      const p = ps[i];
+      const row = document.createElement('div');
+      if (!p) {
+        row.className = 'slot cpu';
+        row.textContent = '（空き：CPUが入ります）';
+      } else {
+        row.className = 'slot';
+        const nm = document.createElement('b');
+        const c = CHARACTERS[p.presence.char] ? CHARACTERS[p.presence.char].name : '';
+        nm.textContent = String(p.presence.name || '武者').slice(0, 10) + '・' + c;
+        const tags = document.createElement('span');
+        const marks = [];
+        if (p.sameTab) marks.push('あなた');
+        if (p.peer === hostPeer) marks.push('ホスト');
+        if (p.presence.phase === 'battle') marks.push('合戦中');
+        tags.className = 'tag' + (p.presence.ready ? ' ok' : '');
+        tags.textContent = (marks.length ? marks.join('・') + ' ' : '') + (p.presence.ready ? '準備OK' : '準備中');
+        row.append(nm, tags);
+      }
+      el.appendChild(row);
+    }
+  }
+  const count = t => players.filter(p => p.presence.team === t && !p.sameTab).length;
+  document.getElementById('team-east-btn').classList.toggle('on', Net.team === 'east');
+  document.getElementById('team-west-btn').classList.toggle('on', Net.team === 'west');
+  document.getElementById('team-east-btn').disabled = Net.team !== 'east' && count('east') >= 3;
+  document.getElementById('team-west-btn').disabled = Net.team !== 'west' && count('west') >= 3;
+  const picks = document.getElementById('room-char-picks');
+  picks.innerHTML = '';
+  CHAR_IDS.forEach(id => {
+    const b = document.createElement('button');
+    b.className = 'btn btn-sub pick' + (selectedCharId === id ? ' on' : '');
+    b.textContent = CHARACTERS[id].name;
+    b.onclick = () => { selectedCharId = id; renderCharSelectCards(); Net.r.presence({ char: id }).catch(() => {}); renderRoom(); };
+    picks.appendChild(b);
+  });
+  document.getElementById('ready-btn').textContent = Net.ready ? '準備OKを取り消す' : '準備OK';
+  const startBtn = document.getElementById('host-start-btn');
+  startBtn.hidden = !amHost;
+  const others = inLobby.filter(p => !p.sameTab);
+  const allReady = others.every(p => p.presence.ready);
+  const battleRunning = host && host.presence.phase === 'battle';
+  startBtn.disabled = !allReady;
+  let status = '';
+  if (battleRunning && !amHost) status = 'いま合戦中です。終わったら次の合戦に参加できます。';
+  else if (amHost) status = allReady ? '全員の準備ができました。' : '全員の「準備OK」を待っています。';
+  else status = 'ホストが合戦を始めるのを待っています。';
+  document.getElementById('room-status').textContent = status;
+}
+
+document.getElementById('create-room-btn').addEventListener('click', () => enterRoom(newCode(), true));
+document.getElementById('join-room-btn').addEventListener('click', () => enterRoom(document.getElementById('room-code-in').value, false));
+document.getElementById('room-code-in').addEventListener('keydown', e => { if (e.key === 'Enter') enterRoom(e.target.value, false); });
+document.getElementById('leave-room-btn').addEventListener('click', leaveRoom);
+document.getElementById('copy-code-btn').addEventListener('click', () => {
+  const t = Net.code;
+  const done = () => { document.getElementById('copy-code-btn').textContent = 'コピーしました'; setTimeout(() => document.getElementById('copy-code-btn').textContent = 'コピー', 1500); };
+  try {
+    navigator.clipboard.writeText(t).then(done).catch(() => {
+      const r = document.createRange(); r.selectNodeContents(document.getElementById('room-code-label'));
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    });
+  } catch (e) {}
+});
+['east', 'west'].forEach(t => document.getElementById(`team-${t}-btn`).addEventListener('click', () => {
+  Net.team = t; Net.r.presence({ team: t }).catch(() => {}); renderRoom();
+}));
+document.getElementById('ready-btn').addEventListener('click', () => {
+  Net.ready = !Net.ready; Net.r.presence({ ready: Net.ready }).catch(() => {}); renderRoom();
+});
+document.getElementById('host-start-btn').addEventListener('click', () => {
+  const players = roomPlayers().filter(p => p.presence.phase !== 'battle');
+  const roster = [];
+  for (const team of ['east', 'west']) {
+    const humans = players.filter(p => p.presence.team === team).slice(0, 3);
+    humans.forEach(p => roster.push({ id: p.peer, team, char: CHARACTERS[p.presence.char] ? p.presence.char : 'nobunaga', kind: 'human', name: String(p.presence.name || '武者').slice(0, 10) }));
+    let cpuNo = 0;
+    for (let i = humans.length; i < 3; i++) {
+      roster.push({ id: `cpu-${team[0]}${i}`, team, char: CHAR_IDS[(i + (team === 'west' ? 1 : 0)) % 3], kind: 'cpu', role: cpuNo++ === 0 ? 'defend' : 'attack' });
+    }
+  }
+  const mid = 'm' + Date.now().toString(36);
+  Net.lastMid = mid;
+  Net.r.presence({ phase: 'battle', mid, roster, hits: [], deaths: [], res: null, g: null, cpus: [] }).catch(() => {});
+  beginOnlineMatch(mid, roster, myPeer(), true);
+});
+
+function beginOnlineMatch(mid, roster, hostPeer, isHost) {
+  Net.online = true;
+  Net.mid = mid;
+  Net.hostPeer = hostPeer;
+  Net.isHost = isHost;
+  Net.hits = []; Net.deaths = [];
+  Net.seenHits = {}; Net.seenDeaths = {};
+  if (!isHost) Net.r.presence({ phase: 'battle', mid, hits: [], deaths: [], roster: null }).catch(() => {});
+  const me = roster.find(s => s.id === Net.me);
+  if (me) selectedCharId = me.char;
+  startBattle(roster, Net.me);
+}
+
+function netPushHit(target, amount, attacker, knock) {
+  Net.hits.push([++Net.hitSeq, target.netId, amount, knock === undefined ? null : knock, attacker.netId]);
+  if (Net.hits.length > 12) Net.hits.shift();
+}
+function netPushDeath(team) {
+  Net.deaths.push([++Net.deathSeq, team]);
+  if (Net.deaths.length > 12) Net.deaths.shift();
+}
+function packState(f) {
+  return [r1(f.x), r1(f.z), r2(f.y), r2(f.yaw), Math.round(f.hp), f.maxHp, f.atkN || 0, f.skN || 0, r1(f.moveSpeedRatio), f.respawnTimer > 0 ? 1 : 0];
+}
+function netSend(now) {
+  if (!Net.r || now - Net.lastSend < 50) return;
+  Net.lastSend = now;
+  const patch = { s: packState(playerFighter), hits: Net.hits, deaths: Net.deaths };
+  if (Net.isHost) {
+    patch.cpus = fighters.filter(f => f.ctrl === 'cpu').map(f => [f.netId, ...packState(f)]);
+    patch.g = [r1(matchTimer), eastKills, westKills, Math.round(eastFlagProgress), Math.round(westFlagProgress)];
+  }
+  Net.r.presence(patch).catch(() => {});
+}
+
+function applyNetState(f, s) {
+  if (!Array.isArray(s) || s.length < 10) return;
+  const [x, z, y, yaw, hp, mh, an, sn, ms, dead] = s.map(Number);
+  if (!isFinite(x) || !isFinite(z)) return;
+  if (!f.net) { f.x = x; f.z = z; f.yaw = yaw; f.net = {}; f.seenAtk = an; f.seenSk = sn; }
+  if (Math.hypot(x - f.x, z - f.z) > 8) { f.x = x; f.z = z; }
+  Object.assign(f.net, { x, z, y: y || 0, yaw, ms: ms || 0 });
+  const wasDead = !!f.netDead;
+  f.netDead = !!dead;
+  if (!dead && hp < f.hp) { f.hitFlash = 0.18; f.flinch = 1; }
+  f.hp = Math.max(0, hp); f.maxHp = mh || f.maxHp;
+  if (dead && !wasDead) {
+    spawnSparks(f.x, 1.1, f.z, f.team === 'east' ? 0x4fb3ff : 0xff5a4a, 18, 6);
+    spawnPuff(f.x, 0.8, f.z, 0xeeeeee, 3, 0.6, 1.2);
+    showDamageNumber(f, '撃破！', 'ko');
+    if (f.lastHitByMeAt && performance.now() - f.lastHitByMeAt < 1500) showAnnounce(`${CHARACTERS[f.charId].name} を撃破！`);
+  }
+  if (an !== f.seenAtk) { f.seenAtk = an; if (!dead) { f.respawnTimer = 0; f.atkCd = 0; performAttack(f); } }
+  if (sn !== f.seenSk) { f.seenSk = sn; if (!dead) { f.respawnTimer = 0; f.skillCd = 0; performSkill(f); } }
+}
+
+function updateRemoteFighter(f, dt) {
+  if (f.gone) { f.rig.root.visible = false; f.respawnTimer = 1; return; }
+  f.respawnTimer = f.netDead ? 1 : 0;
+  f.rig.root.visible = !f.netDead;
+  if (f.net) {
+    const k = Math.min(1, dt * 14);
+    f.x += (f.net.x - f.x) * k;
+    f.z += (f.net.z - f.z) * k;
+    f.y = f.net.y;
+    let d = f.net.yaw - f.yaw;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    f.yaw += d * k;
+    f.moveSpeedRatio = f.net.ms;
+    f.isGrounded = f.y <= 0.02;
+  }
+  tickFighter(f, dt);
+  f.rig.root.position.set(f.x, f.y, f.z);
+  f.rig.root.rotation.y = f.yaw;
+  f.animTime += dt * (0.4 + f.moveSpeedRatio * 0.9);
+  updateCharacterAnimation(f.rig, f, dt);
+}
+
+function netReceive() {
+  if (!Net.r) return;
+  const peers = Net.r.peers();
+  const byPeer = new Map(peers.map(p => [p.peer, p]));
+  const host = byPeer.get(Net.hostPeer);
+  if (!Net.isHost) {
+    const hp = host && host.presence;
+    if (!hp || (hp.mid !== Net.mid)) { finishMatch('none', 'ホストが試合をやめたため、終了しました'); return; }
+    (Array.isArray(hp.cpus) ? hp.cpus : []).forEach(c => {
+      const f = Array.isArray(c) && Net.byId.get(c[0]);
+      if (f && f.ctrl === 'remote') applyNetState(f, c.slice(1));
+    });
+    if (Array.isArray(hp.g)) {
+      matchTimer = Number(hp.g[0]) || 0;
+      eastKills = Number(hp.g[1]) || 0; westKills = Number(hp.g[2]) || 0;
+      eastFlagProgress = Number(hp.g[3]) || 0; westFlagProgress = Number(hp.g[4]) || 0;
+      updateHudScores();
+    }
+    if (hp.phase === 'result' && Array.isArray(hp.res)) { finishMatch(String(hp.res[0]), String(hp.res[1] || '')); return; }
+  }
+  // 他の人間プレイヤーの武将
+  for (const f of fighters) {
+    if (f.ctrl !== 'remote' || f.kind !== 'human') continue;
+    const p = byPeer.get(f.netId);
+    if (!p || p.presence.mid !== Net.mid || p.presence.phase === 'lobby') { f.gone = true; continue; }
+    if (p.presence.s) applyNetState(f, p.presence.s);
+  }
+  // 当たり・撃破の知らせ
+  let changed = false;
+  for (const p of peers) {
+    if (p.sameTab || !p.presence || p.presence.mid !== Net.mid) continue;
+    const seen = Net.seenHits[p.peer] || 0;
+    let mx = seen;
+    for (const h of (Array.isArray(p.presence.hits) ? p.presence.hits : [])) {
+      if (!Array.isArray(h) || !(h[0] > seen)) continue;
+      mx = Math.max(mx, h[0]);
+      const t = Net.byId.get(h[1]), a = Net.byId.get(h[4]);
+      const amt = Math.max(0, Math.min(80, Number(h[2]) || 0));
+      if (t && a && owned(t)) applyDamage(t, amt, a, h[3] === null ? undefined : Math.min(3, Number(h[3]) || 0));
+    }
+    Net.seenHits[p.peer] = mx;
+    if (Net.isHost) {
+      const sd = Net.seenDeaths[p.peer] || 0;
+      let md = sd;
+      for (const d of (Array.isArray(p.presence.deaths) ? p.presence.deaths : [])) {
+        if (!Array.isArray(d) || !(d[0] > sd)) continue;
+        md = Math.max(md, d[0]);
+        if (d[1] === 'east') eastKills++; else if (d[1] === 'west') westKills++;
+        changed = true;
+      }
+      Net.seenDeaths[p.peer] = md;
+    }
+  }
+  if (changed) updateHudScores();
+}
+
+window.addEventListener('resize', () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+});
+</script>
+</body>
+</html>
